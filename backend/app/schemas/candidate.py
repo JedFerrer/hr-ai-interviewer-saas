@@ -13,6 +13,13 @@ class CandidateListItem(BaseModel):
     email: str | None
     status: str
     overall_score: float | None = None
+    # Per-dimension breakdown (mirrors EvaluationResponse.scores). Optional —
+    # only present when the candidate has a completed evaluation.
+    skill_match: float | None = None
+    communication: float | None = None
+    problem_solving: float | None = None
+    cultural_fit: float | None = None
+    recommendation: str | None = None
     completed_at: datetime | None = None
     resume_url: str | None = None
 
