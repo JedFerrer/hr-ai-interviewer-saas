@@ -494,13 +494,8 @@ function ResumeTab({ candidate }: { candidate: CandidateDetail }) {
               variant="outline"
               size="sm"
               onClick={() => {
-                const token = localStorage.getItem("access_token");
-                if (!token) {
-                  toast.error("Not authenticated");
-                  return;
-                }
                 fetch(`${API_URL}/candidates/${candidate.id}/resume`, {
-                  headers: { Authorization: `Bearer ${token}` },
+                  credentials: "include",
                 })
                   .then((res) => {
                     if (!res.ok) throw new Error("Download failed");

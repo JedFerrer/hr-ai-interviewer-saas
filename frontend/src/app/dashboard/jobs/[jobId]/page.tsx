@@ -445,12 +445,10 @@ function CandidateRow({
             title="Download resume"
             onClick={(e) => {
               e.stopPropagation();
-              const token = localStorage.getItem("access_token");
-              if (token) {
-                e.preventDefault();
-                fetch(`${API_URL}/candidates/${candidate.id}/resume`, {
-                  headers: { Authorization: `Bearer ${token}` },
-                })
+              e.preventDefault();
+              fetch(`${API_URL}/candidates/${candidate.id}/resume`, {
+                credentials: "include",
+              })
                   .then((res) => {
                     if (!res.ok) throw new Error("Download failed");
                     const disposition =
@@ -487,9 +485,8 @@ function CandidateRow({
                     URL.revokeObjectURL(url);
                   })
                   .catch(() => toast.error("Failed to download resume"));
-              }
-            }}
-          >
+            }}>
+
             <Download className="h-4 w-4" />
           </a>
         ) : (
