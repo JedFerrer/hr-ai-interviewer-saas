@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # --- Requests ---
@@ -10,9 +10,20 @@ from pydantic import BaseModel, EmailStr, Field
 
 class SignupRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=10, max_length=128)
     name: str = Field(min_length=1, max_length=255)
     company_name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        # Require at least one letter and one digit. Symbol not strictly required
+        # but length floor (10) provides additional entropy.
+        if not any(c.isalpha() for c in v) or not any(c.isdigit() for c in v):
+            raise ValueError(
+                "Password must contain at least one letter and one digit."
+            )
+        return v
 
 
 class LoginRequest(BaseModel):

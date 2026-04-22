@@ -25,7 +25,7 @@ interface AuthContextValue extends AuthState {
     name: string;
     company_name: string;
   }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -37,29 +37,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: false,
   });
 
-  // Check existing session on mount
+  // Auth lives in an HttpOnly cookie. Probe `/auth/me` on mount to learn
+  // whether the browser already has a valid session.
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      setState({ user: null, isLoading: false, isAuthenticated: false });
-      return;
-    }
-
     authApi
       .me()
       .then(({ user }) => {
         setState({ user, isLoading: false, isAuthenticated: true });
       })
       .catch(() => {
-        localStorage.removeItem("access_token");
         setState({ user: null, isLoading: false, isAuthenticated: false });
       });
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const response = await authApi.login({ email, password });
-    localStorage.setItem("access_token", response.access_token);
-    // Login response only has token — fetch user profile
+    // Cookie is set by the response Set-Cookie header.
+    await authApi.login({ email, password });
     const { user } = await authApi.me();
     setState({ user, isLoading: false, isAuthenticated: true });
   }, []);
@@ -72,7 +65,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       company_name: string;
     }) => {
       const response = await authApi.signup(data);
-      localStorage.setItem("access_token", response.access_token);
       setState({
         user: response.user,
         isLoading: false,
@@ -82,16 +74,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const logout = useCallback(() => {
-    localStorage.removeItem("access_token");
+  const logout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Logout is best-effort; clear local state regardless.
+    }
     setState({ user: null, isLoading: false, isAuthenticated: false });
     window.location.href = "/login";
   }, []);
 
   return (
-    <AuthContext.Provider
-      value={{ ...state, login, signup, logout }}
-    >
+    <AuthContext.Provider value={{ ...state, login, signup, logout }}>
       {children}
     </AuthContext.Provider>
   );
