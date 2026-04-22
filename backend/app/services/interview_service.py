@@ -34,8 +34,15 @@ from app.services.prompts import (
     RESUME_QUESTIONS_PROMPT,
 )
 from app.services.resume_service import extract_text_from_bytes, parse_resume_with_llm_async
-from app.utils.storage import generate_storage_key, upload_file_local, validate_resume_file
+from app.utils.audit import audit
+from app.utils.storage import (
+    generate_storage_key,
+    upload_file_local,
+    validate_resume_content,
+    validate_resume_file,
+)
 from app.utils.token_tracker import calculate_cost
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -47,6 +54,10 @@ _REPETITION_RATIO_THRESHOLD = 0.4  # if 40%+ of sentences are duplicates
 _PARROTING_OVERLAP_THRESHOLD = 0.5  # if 50%+ of answer words come from the question
 
 LLM_MODEL = settings.active_llm_model
+
+# Strong references for fire-and-forget background tasks. Without this, the
+# event loop only holds a weak reference and tasks may be GC'd mid-execution.
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -105,9 +116,14 @@ async def apply(
 
     normalized = normalize_email(candidate_email)
 
-    # Allow test emails to bypass duplicate check (deletes previous application)
-    _TEST_EMAILS = {"ferrer.jedidiah@gmail.com"}
-    if normalized in _TEST_EMAILS:
+    # Test-email bypass — strictly opt-in via env. Never enabled in production.
+    test_emails: set[str] = set()
+    if settings.enable_test_emails and settings.test_emails:
+        test_emails = {
+            normalize_email(e) for e in settings.test_emails.split(",") if e.strip()
+        }
+
+    if normalized in test_emails:
         existing = await db.execute(
             select(Candidate).where(
                 Candidate.normalized_email == normalized,
@@ -118,9 +134,11 @@ async def apply(
         if old:
             await db.delete(old)
             await db.flush()
-            logger.info("Test email %s: deleted previous application for re-testing", normalized)
+            logger.info(
+                "Test email %s: deleted previous application for re-testing", normalized
+            )
     else:
-        # Check for existing application (same email + same job)
+        # Pre-check for friendlier 409; DB unique constraint is the source of truth.
         existing = await db.execute(
             select(Candidate).where(
                 Candidate.normalized_email == normalized,
@@ -133,7 +151,15 @@ async def apply(
                 detail="You have already applied for this position.",
             )
 
-    validate_resume_file(filename, len(file_content))
+    # Validate file: extension + size, then magic-bytes (rejects spoofed types).
+    try:
+        validate_resume_file(filename, len(file_content))
+        validate_resume_content(filename, file_content)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
     storage_key = generate_storage_key(filename)
     resume_url = await upload_file_local(file_content, storage_key)
 
@@ -149,8 +175,22 @@ async def apply(
         interview_token=interview_token,
     )
     db.add(candidate)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Race: a concurrent request inserted the same (email, job) pair first.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You have already applied for this position.",
+        )
     await db.refresh(candidate)
+    audit(
+        "candidate.applied",
+        candidate_id=candidate.id,
+        job_id=job.id,
+        company_id=job.company_id,
+    )
     return candidate
 
 
@@ -192,12 +232,21 @@ async def process_application_background(
                 total_pt += pt
                 total_ct += ct
             except (ValueError, json.JSONDecodeError) as exc:
-                logger.warning("Resume parse failed: %s — using fallback", exc)
-                resume_data = {
-                    "name": candidate.name,
-                    "email": candidate.email,
-                    "summary": "Resume could not be parsed.",
-                }
+                # Hard-fail: an interview built on dummy resume data produces
+                # garbage questions and a misleading evaluation. Better to
+                # surface the error to the HR user than ship bad data.
+                logger.error(
+                    "Resume parse failed for candidate %s: %s", candidate_id, exc
+                )
+                candidate.status = "error"
+                await db.commit()
+                audit(
+                    "candidate.resume_parse_failed",
+                    candidate_id=candidate_id,
+                    job_id=job_id,
+                    reason=str(exc),
+                )
+                return
 
             candidate.resume_parsed_data = resume_data
 
@@ -595,10 +644,18 @@ async def process_message(
     is_last_question = advanced and not is_complete and current_idx == len(questions) - 1
     await db.commit()
 
-    # Auto-evaluate in background after completion
+    # Auto-evaluate in background after completion.
+    # Note: this is fire-and-forget. On worker restart the task is lost; move to
+    # a durable queue (Celery/ARQ) before scaling beyond a single process.
     if is_complete:
-        asyncio.get_event_loop().create_task(
-            _auto_evaluate_interview(interview.id)
+        task = asyncio.create_task(_auto_evaluate_interview(interview.id))
+        # Keep a strong reference so the task isn't garbage-collected mid-flight.
+        _BACKGROUND_TASKS.add(task)
+        task.add_done_callback(_BACKGROUND_TASKS.discard)
+        audit(
+            "interview.completed",
+            interview_id=interview.id,
+            candidate_id=candidate.id,
         )
 
     return ai_response, progress, is_complete, is_last_question

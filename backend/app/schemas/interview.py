@@ -14,10 +14,13 @@ class InterviewLandingResponse(BaseModel):
 # --- Application (Phase A) ---
 
 class ApplicationResponse(BaseModel):
-    """Returned immediately after candidate submits application."""
+    """Returned immediately after candidate submits application.
+
+    Note: interview_token is intentionally NOT exposed here — it is delivered
+    only via the (rate-limited, server-side) invite email to prevent hijack.
+    """
     message: str
     candidate_id: str
-    interview_token: str
     status: str  # "processing"
 
 

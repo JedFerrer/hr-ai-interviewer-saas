@@ -1,83 +1,54 @@
-"""Simple in-memory rate limiter middleware."""
+"""Rate limiter built on slowapi.
+
+Uses Redis when REDIS_URL is set, otherwise falls back to in-memory storage.
+"""
 
 from __future__ import annotations
 
-import time
-from collections import defaultdict
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
-from fastapi import HTTPException, Request, status
-from starlette.middleware.base import BaseHTTPMiddleware
-
-# Config: {path_prefix: (max_requests, window_seconds)}
-RATE_LIMITS: dict[str, tuple[int, int]] = {
-    "/auth/login": (20, 60),       # 20 per minute
-    "/auth/signup": (5, 60),       # 5 per minute
-    "/interview/start": (10, 3600),  # 10 per hour
-    "/interview/message": (60, 60),  # 60 per minute
-}
-
-# Exact-path rate limits (only match exact path, not prefix)
-EXACT_RATE_LIMITS: dict[str, tuple[int, int]] = {
-    "/interview/apply": (10, 60),    # 10 per minute (POST only, not status polls)
-}
+from app.config import get_settings
 
 
-class RateLimiterMiddleware(BaseHTTPMiddleware):
-    """Per-IP rate limiting for specific endpoints.
+def _client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "anonymous"
 
-    Uses an in-memory store — fine for single-process MVP.
-    Replace with Redis for multi-process production.
-    """
 
-    def __init__(self, app):
-        super().__init__(app)
-        # {(ip, path_prefix): [timestamp, ...]}
-        self._requests: dict[tuple[str, str], list[float]] = defaultdict(list)
+_settings = get_settings()
+_storage_uri = _settings.redis_url.strip() if _settings.redis_url else "memory://"
 
-    async def dispatch(self, request: Request, call_next):
-        # Always skip rate limiting for CORS preflight requests (OPTIONS)
-        if request.method.upper() == "OPTIONS":
-            return await call_next(request)
+limiter = Limiter(
+    key_func=_client_key,
+    storage_uri=_storage_uri or "memory://",
+    # headers_enabled=False: avoids slowapi requiring `response: Response` in
+    # every decorated handler (it crashes with 500 otherwise). Limit info is
+    # still surfaced via the 429 JSON detail.
+    headers_enabled=False,
+    swallow_errors=True,
+    enabled=_settings.rate_limit_enabled,
+)
 
-        client_ip = request.client.host if request.client else "unknown"
-        path = request.url.path
 
-        for prefix, (max_req, window) in RATE_LIMITS.items():
-            if path.startswith(prefix):
-                key = (client_ip, prefix)
-                now = time.time()
+def _rate_limit_handler(request, exc):
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"detail": f"Rate limit exceeded: {exc.detail}"},
+    )
 
-                # Prune old entries
-                self._requests[key] = [
-                    t for t in self._requests[key] if now - t < window
-                ]
 
-                if len(self._requests[key]) >= max_req:
-                    raise HTTPException(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail=f"Rate limit exceeded. Max {max_req} requests per {window}s.",
-                    )
+def install_rate_limiter(app: FastAPI) -> None:
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
-                self._requests[key].append(now)
-                break
 
-        # Exact-path rate limits (don't match sub-paths like /apply/xxx/status)
-        for exact_path, (max_req, window) in EXACT_RATE_LIMITS.items():
-            if path == exact_path:
-                key = (client_ip, exact_path)
-                now = time.time()
-
-                self._requests[key] = [
-                    t for t in self._requests[key] if now - t < window
-                ]
-
-                if len(self._requests[key]) >= max_req:
-                    raise HTTPException(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail=f"Rate limit exceeded. Max {max_req} requests per {window}s.",
-                    )
-
-                self._requests[key].append(now)
-                break
-
-        return await call_next(request)
+__all__ = ["limiter", "install_rate_limiter"]

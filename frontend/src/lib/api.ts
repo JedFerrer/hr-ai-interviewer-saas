@@ -12,17 +12,48 @@ import type {
   SessionStartResponse,
 } from "./types";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// All API calls go through the Next.js rewrite proxy so the browser sees
+// them as same-origin. This lets the backend issue an HttpOnly session
+// cookie without cross-site cookie complications.
+export const API_URL = "/api/backend";
+
+/**
+ * Render a FastAPI/pydantic error payload into a human-readable string.
+ * - String detail: returned as-is.
+ * - Pydantic validation array: joins each issue as `field: message`.
+ * - Anything else: falls back to a generic HTTP message.
+ */
+function formatApiError(detail: unknown, status: number): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        if (!d || typeof d !== "object") return String(d);
+        const item = d as { loc?: unknown[]; msg?: string; message?: string };
+        const field =
+          Array.isArray(item.loc) && item.loc.length
+            ? String(item.loc[item.loc.length - 1])
+            : null;
+        const message = item.msg || item.message || JSON.stringify(item);
+        return field ? `${field}: ${message}` : message;
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      // fallthrough
+    }
+  }
+  return `Request failed (HTTP ${status})`;
+}
 
 async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem("access_token")
-      : null;
-
   const headers: Record<string, string> = {};
 
   // Don't set Content-Type for FormData (browser sets it with boundary)
@@ -30,9 +61,9 @@ async function apiRequest<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  // CSRF guard on the backend looks for this header on cookie-authenticated
+  // mutating requests. Browsers will not send it on cross-site form posts.
+  headers["X-Requested-With"] = "XMLHttpRequest";
 
   // Merge any additional headers from options
   if (options.headers) {
@@ -46,15 +77,21 @@ async function apiRequest<T>(
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers,
+    // Send the HttpOnly session cookie set by /auth/login.
+    credentials: "include",
   });
 
   if (!response.ok) {
     const error = await response
       .json()
-      .catch(() => ({ detail: "Unknown error" }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+      .catch(() => ({ detail: `HTTP ${response.status}` }));
+    throw new Error(formatApiError(error.detail, response.status));
   }
 
+  // 204 No Content -> nothing to parse.
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json();
 }
 
@@ -76,6 +113,7 @@ export const auth = {
       body: JSON.stringify(data),
     }),
   me: () => apiRequest<{ user: User }>("/auth/me"),
+  logout: () => apiRequest<void>("/auth/logout", { method: "POST" }),
 };
 
 // Jobs

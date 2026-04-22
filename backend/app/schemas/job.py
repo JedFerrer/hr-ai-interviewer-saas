@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+JobStatus = Literal["active", "paused", "archived"]
 
 
 class InterviewConfig(BaseModel):
@@ -36,7 +39,7 @@ class JobUpdateRequest(BaseModel):
     required_skills: list[str] | None = None
     custom_questions: list[dict] | None = None
     interview_config: InterviewConfig | None = None
-    status: str | None = None
+    status: JobStatus | None = None
 
 
 # --- Responses ---
@@ -52,7 +55,7 @@ class JobResponse(BaseModel):
     required_skills: list[str] | None = None
     custom_questions: list[dict] | None = None
     interview_config: dict
-    status: str
+    status: JobStatus
     interview_link_token: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -63,7 +66,7 @@ class JobResponse(BaseModel):
 class JobListItem(BaseModel):
     id: str
     title: str
-    status: str
+    status: JobStatus
     department: str | None = None
     location: str | None = None
     candidate_count: int = 0

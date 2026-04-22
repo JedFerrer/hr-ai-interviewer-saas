@@ -59,8 +59,18 @@ async def list_candidates(
     """List candidates for a job with optional filtering and sorting."""
     from sqlalchemy import func
 
-    base_q = select(Candidate).where(Candidate.job_posting_id == job_id)
-    count_q = select(func.count(Candidate.id)).where(Candidate.job_posting_id == job_id)
+    from app.models.job_posting import JobPosting
+
+    base_q = (
+        select(Candidate)
+        .join(JobPosting, Candidate.job_posting_id == JobPosting.id)
+        .where(Candidate.job_posting_id == job_id, JobPosting.company_id == company_id)
+    )
+    count_q = (
+        select(func.count(Candidate.id))
+        .join(JobPosting, Candidate.job_posting_id == JobPosting.id)
+        .where(Candidate.job_posting_id == job_id, JobPosting.company_id == company_id)
+    )
 
     if status_filter:
         base_q = base_q.where(Candidate.status == status_filter)

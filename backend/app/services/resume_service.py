@@ -80,8 +80,12 @@ async def parse_resume_with_llm_async(
 ) -> tuple[dict, int, int]:
     """Async version: send resume text to LLM with provider fallback.
 
-    Returns (structured_data, prompt_tokens, completion_tokens).
+    Returns (validated_resume_dict, prompt_tokens, completion_tokens).
+
+    The raw LLM JSON is validated through `ResumeData` so callers always get a
+    normalized shape; invalid payloads raise ValueError (caught upstream).
     """
+    from app.schemas.resume import ResumeData
     from app.services.llm_client import llm_chat_completion
 
     prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=resume_text)
@@ -91,7 +95,15 @@ async def parse_resume_with_llm_async(
     )
     raw = response.choices[0].message.content or ""
     cleaned = _strip_code_fences(raw)
-    data = json.loads(cleaned)
+    raw_data = json.loads(cleaned)
+    if not isinstance(raw_data, dict):
+        raise ValueError("LLM did not return a JSON object for resume data")
+
+    try:
+        validated = ResumeData.model_validate(raw_data)
+    except Exception as exc:  # ValidationError -> normalize to ValueError
+        raise ValueError(f"Resume data failed validation: {exc}") from exc
+    data = validated.model_dump()
 
     pt = response.usage.prompt_tokens if response.usage else 0
     ct = response.usage.completion_tokens if response.usage else 0

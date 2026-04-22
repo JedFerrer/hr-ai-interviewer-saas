@@ -14,7 +14,17 @@ class Settings(BaseSettings):
     # Auth
     jwt_secret_key: str = "change-this-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expiry_days: int = 7
+    jwt_expiry_minutes: int = 60  # short-lived access tokens; rotate via re-login
+    # Account lockout
+    max_failed_login_attempts: int = 5
+    account_lockout_minutes: int = 15
+
+    # Feature flags (default OFF — never enable in production)
+    enable_test_emails: bool = False
+    test_emails: str = ""  # comma-separated allowlist when enable_test_emails=True
+
+    # Environment: "development" | "production"
+    environment: str = "development"
 
     # LLM Provider: "openai", "deepseek", or "anthropic"
     llm_provider: str = "deepseek"
@@ -91,23 +101,49 @@ class Settings(BaseSettings):
         "http://localhost:5173",
     ]
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # Rate limiting
+    # Empty = use in-memory storage (single process only).
+    # Set to e.g. "redis://localhost:6379/0" to share limits across workers.
+    redis_url: str = ""
+    rate_limit_enabled: bool = True
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        # Tolerate stale env vars (e.g. legacy JWT_EXPIRY_DAYS) instead of
+        # crashing app startup. New settings are documented in .env.example.
+        "extra": "ignore",
+    }
 
 
 _INSECURE_DEFAULTS = {
     "change-this-in-production",
     "hr-interviewer-dev-secret-key-2026",
+    "",
 }
+
+# Minimum acceptable JWT secret length (in characters) outside development
+_MIN_JWT_SECRET_LENGTH = 32
 
 
 @lru_cache
 def get_settings() -> Settings:
     s = Settings()
-    if s.jwt_secret_key in _INSECURE_DEFAULTS:
+    is_prod = s.environment.lower() == "production"
+
+    if s.jwt_secret_key in _INSECURE_DEFAULTS or len(s.jwt_secret_key) < _MIN_JWT_SECRET_LENGTH:
+        msg = (
+            "JWT_SECRET_KEY is missing, default, or too short (<32 chars). "
+            "Generate a strong key: "
+            'python -c "import secrets; print(secrets.token_hex(64))"'
+        )
+        if is_prod:
+            raise RuntimeError(msg)
         import warnings
-        warnings.warn(
-            "JWT_SECRET_KEY is set to an insecure default. "
-            "Generate a strong key: python -c \"import secrets; print(secrets.token_hex(64))\"",
-            stacklevel=2,
+        warnings.warn(msg, stacklevel=2)
+
+    if is_prod and s.enable_test_emails:
+        raise RuntimeError(
+            "ENABLE_TEST_EMAILS must not be true in production."
         )
     return s

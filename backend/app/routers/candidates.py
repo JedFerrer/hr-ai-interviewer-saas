@@ -17,9 +17,9 @@ from app.schemas.candidate import (
     StatusUpdateRequest,
 )
 from app.services import candidate_service
-from app.utils.security import get_current_user
+from app.utils.security import csrf_protect, get_current_user
 
-router = APIRouter(prefix="/candidates", tags=["candidates"])
+router = APIRouter(prefix="/candidates", tags=["candidates"], dependencies=[Depends(csrf_protect)])
 
 
 @router.get("/{candidate_id}", response_model=CandidateDetailResponse)
