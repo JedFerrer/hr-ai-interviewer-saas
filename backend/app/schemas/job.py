@@ -28,6 +28,7 @@ class JobCreateRequest(BaseModel):
     required_skills: list[str] = Field(default_factory=list)
     custom_questions: list[dict] | None = None
     interview_config: InterviewConfig | None = None
+    auto_send_status_emails: bool | None = None
 
 
 class JobUpdateRequest(BaseModel):
@@ -39,6 +40,7 @@ class JobUpdateRequest(BaseModel):
     required_skills: list[str] | None = None
     custom_questions: list[dict] | None = None
     interview_config: InterviewConfig | None = None
+    auto_send_status_emails: bool | None = None
     status: JobStatus | None = None
 
 
@@ -55,6 +57,7 @@ class JobResponse(BaseModel):
     required_skills: list[str] | None = None
     custom_questions: list[dict] | None = None
     interview_config: dict
+    auto_send_status_emails: bool = True
     status: JobStatus
     interview_link_token: str | None = None
     created_at: datetime
