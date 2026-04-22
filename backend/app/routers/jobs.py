@@ -19,10 +19,10 @@ from app.schemas.job import (
     JobUpdateRequest,
 )
 from app.services import candidate_service, job_service
-from app.utils.security import get_current_user
+from app.utils.security import csrf_protect, get_current_user
 
 settings = get_settings()
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(csrf_protect)])
 
 
 @router.post("", response_model=JobCreateResponse, status_code=201)
