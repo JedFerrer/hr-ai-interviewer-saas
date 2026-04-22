@@ -10,6 +10,10 @@ import type {
   ApplicationStatusResponse,
   SessionLandingResponse,
   SessionStartResponse,
+  ShareTokenResponse,
+  PublicReport,
+  EmailTemplates,
+  EmailTemplatesUpdate,
 } from "./types";
 
 // All API calls go through the Next.js rewrite proxy so the browser sees
@@ -151,6 +155,34 @@ export const candidates = {
   reject: (id: string) =>
     apiRequest<Candidate>(`/candidates/${id}/reject`, {
       method: "POST",
+    }),
+};
+
+// Shareable evaluation reports
+export const share = {
+  create: (candidateId: string) =>
+    apiRequest<ShareTokenResponse>(`/candidates/${candidateId}/share`, {
+      method: "POST",
+    }),
+  revoke: (candidateId: string, tokenId: string) =>
+    apiRequest<void>(`/candidates/${candidateId}/share/${tokenId}`, {
+      method: "DELETE",
+    }),
+};
+
+// Public report (no auth, callable from /report/[token])
+export const publicReports = {
+  get: (token: string) =>
+    apiRequest<PublicReport>(`/public/report/${token}`),
+};
+
+// Per-company status-email templates
+export const emailTemplates = {
+  get: () => apiRequest<EmailTemplates>("/companies/me/email-templates"),
+  update: (data: EmailTemplatesUpdate) =>
+    apiRequest<EmailTemplates>("/companies/me/email-templates", {
+      method: "PUT",
+      body: JSON.stringify(data),
     }),
 };
 

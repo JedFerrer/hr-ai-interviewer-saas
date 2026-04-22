@@ -45,6 +45,7 @@ export interface JobPosting {
   candidate_count: number;
   avg_score: number | null;
   created_at: string;
+  auto_send_status_emails: boolean;
 }
 
 // === Candidates ===
@@ -54,6 +55,18 @@ export interface Candidate {
   email: string;
   status: "invited" | "in_progress" | "completed" | "shortlisted" | "rejected";
   overall_score: number | null;
+  // Sub-scores from the evaluation, surfaced by the comparison/ranking board.
+  skill_match: number | null;
+  communication: number | null;
+  problem_solving: number | null;
+  cultural_fit: number | null;
+  recommendation:
+    | "strong_yes"
+    | "yes"
+    | "maybe"
+    | "no"
+    | "strong_no"
+    | null;
   resume_url: string | null;
   created_at: string;
   completed_at: string | null;
@@ -158,3 +171,42 @@ export interface SessionStartResponse {
   first_message: string;
   total_questions: number;
 }
+
+// === Shareable evaluation report ===
+export interface ShareTokenResponse {
+  token: string;
+  url: string;
+  expires_at: string;
+  token_id: string;
+}
+
+export interface PublicTranscriptMessage {
+  role: "interviewer" | "candidate";
+  content: string;
+  timestamp: string;
+}
+
+export interface PublicReport {
+  candidate_name: string;
+  job_title: string;
+  company_name: string;
+  completed_at: string | null;
+  evaluation: Evaluation;
+  transcript: PublicTranscriptMessage[];
+  expires_at: string;
+}
+
+// === Email templates ===
+export type EmailTemplateKind = "shortlist" | "reject";
+
+export interface EmailTemplateBody {
+  subject: string;
+  body_html: string;
+}
+
+export interface EmailTemplates {
+  shortlist: EmailTemplateBody;
+  reject: EmailTemplateBody;
+}
+
+export type EmailTemplatesUpdate = Partial<EmailTemplates>;
