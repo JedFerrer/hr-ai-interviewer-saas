@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.middleware.rate_limiter import limiter
 from app.schemas.interview import (
     ApplicationResponse,
     ApplicationStatusResponse,
@@ -41,7 +42,9 @@ async def interview_landing(
 
 
 @router.post("/apply", response_model=ApplicationResponse)
+@limiter.limit("10/minute")
 async def apply(
+    request: Request,
     background_tasks: BackgroundTasks,
     job_token: str = Form(...),
     candidate_name: str = Form(...),
@@ -74,7 +77,6 @@ async def apply(
     return ApplicationResponse(
         message="Application received! We'll email you an interview link shortly.",
         candidate_id=candidate.id,
-        interview_token=candidate.interview_token,
         status="processing",
     )
 
@@ -124,7 +126,9 @@ async def session_landing(
 
 
 @router.post("/session/{interview_token}/start", response_model=SessionStartResponse)
+@limiter.limit("10/hour")
 async def session_start(
+    request: Request,
     interview_token: str,
     db: AsyncSession = Depends(get_db),
 ):
@@ -138,7 +142,9 @@ async def session_start(
 
 
 @router.post("/message", response_model=InterviewMessageResponse)
+@limiter.limit("60/minute")
 async def interview_message(
+    request: Request,
     data: InterviewMessageRequest,
     db: AsyncSession = Depends(get_db),
 ):
