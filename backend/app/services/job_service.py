@@ -49,50 +49,55 @@ async def list_jobs(
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """List jobs for a company with candidate count and avg score."""
-    # Count total
+    """List jobs for a company with candidate count and avg score.
+
+    Single grouped query (was N+1: 1 + 2 per job).
+    """
+    # Total count
     count_q = select(func.count(JobPosting.id)).where(
         JobPosting.company_id == company_id
     )
     total = (await db.execute(count_q)).scalar() or 0
 
-    # Fetch jobs
+    # Aggregate: candidate count + avg overall score per job in one round-trip.
+    candidate_count = func.count(func.distinct(Candidate.id)).label("candidate_count")
+    avg_score = func.avg(EvaluationRecord.overall_score).label("avg_score")
+
     q = (
-        select(JobPosting)
+        select(
+            JobPosting.id,
+            JobPosting.title,
+            JobPosting.status,
+            JobPosting.department,
+            JobPosting.location,
+            JobPosting.created_at,
+            candidate_count,
+            avg_score,
+        )
+        .outerjoin(Candidate, Candidate.job_posting_id == JobPosting.id)
+        .outerjoin(Interview, Interview.job_posting_id == JobPosting.id)
+        .outerjoin(EvaluationRecord, EvaluationRecord.interview_id == Interview.id)
         .where(JobPosting.company_id == company_id)
+        .group_by(JobPosting.id)
         .order_by(JobPosting.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
-    result = await db.execute(q)
-    jobs = result.scalars().all()
+    rows = (await db.execute(q)).all()
 
-    items = []
-    for job in jobs:
-        # Candidate count
-        cc = await db.execute(
-            select(func.count(Candidate.id)).where(Candidate.job_posting_id == job.id)
-        )
-        candidate_count = cc.scalar() or 0
-
-        # Average score
-        avg_q = (
-            select(func.avg(EvaluationRecord.overall_score))
-            .join(Interview, EvaluationRecord.interview_id == Interview.id)
-            .where(Interview.job_posting_id == job.id)
-        )
-        avg_score = (await db.execute(avg_q)).scalar()
-
-        items.append({
-            "id": job.id,
-            "title": job.title,
-            "status": job.status,
-            "department": job.department,
-            "location": job.location,
-            "candidate_count": candidate_count,
-            "avg_score": round(float(avg_score), 1) if avg_score else None,
-            "created_at": job.created_at,
-        })
+    items = [
+        {
+            "id": row.id,
+            "title": row.title,
+            "status": row.status,
+            "department": row.department,
+            "location": row.location,
+            "candidate_count": row.candidate_count or 0,
+            "avg_score": round(float(row.avg_score), 1) if row.avg_score is not None else None,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
 
     return items, total
 
