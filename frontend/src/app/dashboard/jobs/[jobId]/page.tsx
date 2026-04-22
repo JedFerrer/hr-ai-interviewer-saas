@@ -12,7 +12,6 @@ import {
   ArrowUp,
   ArrowUpDown,
   Copy,
-  Download,
   GitCompare,
   Loader2,
   Users,
@@ -21,13 +20,8 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
 
-import {
-  jobs as jobsApi,
-  candidates as candidatesApi,
-  API_URL,
-} from "@/lib/api";
+import { jobs as jobsApi, candidates as candidatesApi } from "@/lib/api";
 import type { JobPosting, Candidate } from "@/lib/types";
 import { ComparisonDrawer } from "@/components/comparison-drawer";
 import { Button } from "@/components/ui/button";
@@ -134,6 +128,11 @@ export default function JobDetailPage() {
     candidateId: string,
     action: "shortlist" | "reject",
   ) => {
+    // Capture the previous status so we can undo.
+    const previous = candidateList.find((c) => c.id === candidateId);
+    if (!previous) return;
+    const previousStatus = previous.status;
+
     setActioningId(candidateId);
     try {
       const fn =
@@ -141,15 +140,51 @@ export default function JobDetailPage() {
           ? candidatesApi.shortlist
           : candidatesApi.reject;
       const updated = await fn(candidateId);
+      const newStatus = updated.status;
       setCandidateList((prev) =>
         prev.map((c) =>
-          c.id === candidateId ? { ...c, status: updated.status } : c,
+          c.id === candidateId ? { ...c, status: newStatus } : c,
         ),
       );
       toast.success(
-        action === "shortlist"
-          ? "Candidate shortlisted"
-          : "Candidate rejected",
+        action === "shortlist" ? "Candidate shortlisted" : "Candidate rejected",
+        {
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              try {
+                // Re-apply the previous status via the appropriate endpoint.
+                const undoFn =
+                  previousStatus === "shortlisted"
+                    ? candidatesApi.shortlist
+                    : previousStatus === "rejected"
+                      ? candidatesApi.reject
+                      : null;
+                if (undoFn) {
+                  const reverted = await undoFn(candidateId);
+                  setCandidateList((prev) =>
+                    prev.map((c) =>
+                      c.id === candidateId
+                        ? { ...c, status: reverted.status }
+                        : c,
+                    ),
+                  );
+                } else {
+                  // Previous status wasn't shortlisted/rejected — there's no
+                  // dedicated endpoint to restore it, so just re-fetch.
+                  const res = await jobsApi.candidates(
+                    jobId,
+                    `sort=${sortKey}&order=${sortOrder}`,
+                  );
+                  setCandidateList(res.candidates);
+                }
+                toast.info("Action undone");
+              } catch {
+                toast.error("Failed to undo");
+              }
+            },
+          },
+        },
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Action failed");
@@ -509,10 +544,7 @@ export default function JobDetailPage() {
                     <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap hidden xl:table-cell">
                       Rec.
                     </th>
-                    <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap hidden xl:table-cell">
-                      Date
-                    </th>
-                    <th className="pb-3 font-medium text-muted-foreground w-32">
+                    <th className="pb-3 font-medium text-muted-foreground w-28">
                       Actions
                     </th>
                   </tr>
@@ -724,13 +756,6 @@ function CandidateRow({
           <span className="text-muted-foreground">—</span>
         )}
       </td>
-      <td className="py-3 pr-3 text-muted-foreground hidden xl:table-cell">
-        {candidate.completed_at
-          ? formatDistanceToNow(new Date(candidate.completed_at), {
-              addSuffix: true,
-            })
-          : "—"}
-      </td>
       <td className="py-3">
         <div className="flex items-center gap-1">
           <Button
@@ -753,20 +778,6 @@ function CandidateRow({
           >
             <ThumbsDown className="h-3.5 w-3.5" />
           </Button>
-          {candidate.resume_url && (
-            <a
-              href={`${API_URL}/candidates/${candidate.id}/resume`}
-              className="inline-flex h-7 items-center justify-center rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-              title="Download resume"
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                downloadResume(candidate.id, candidate.name);
-              }}
-            >
-              <Download className="h-3.5 w-3.5" />
-            </a>
-          )}
         </div>
       </td>
     </tr>
@@ -775,41 +786,4 @@ function CandidateRow({
 
 function formatScore(value: number | null): string {
   return value != null ? Number(value).toFixed(1) : "—";
-}
-
-function downloadResume(candidateId: string, candidateName: string): void {
-  fetch(`${API_URL}/candidates/${candidateId}/resume`, {
-    credentials: "include",
-  })
-    .then((res) => {
-      if (!res.ok) throw new Error("Download failed");
-      const disposition = res.headers.get("content-disposition");
-      let filename = "";
-      if (disposition) {
-        const match = disposition.match(
-          /filename\*?=(?:UTF-8''|"?)([^";]+)"?/i,
-        );
-        if (match) filename = decodeURIComponent(match[1]);
-      }
-      if (!filename) {
-        const ct = res.headers.get("content-type") || "";
-        const ext =
-          ct.includes("wordprocessingml") || ct.includes("msword")
-            ? ".docx"
-            : ct.includes("pdf")
-              ? ".pdf"
-              : "";
-        filename = `${candidateName?.replace(/\s+/g, "_") || "resume"}_resume${ext}`;
-      }
-      return res.blob().then((blob) => ({ blob, filename }));
-    })
-    .then(({ blob, filename }) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    })
-    .catch(() => toast.error("Failed to download resume"));
 }
