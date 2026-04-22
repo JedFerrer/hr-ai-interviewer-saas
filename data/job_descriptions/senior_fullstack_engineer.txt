@@ -1,0 +1,31 @@
+Senior Full-Stack Engineer
+
+Company: TechCorp Inc.
+Location: Remote (US)
+Salary: $150,000 - $180,000
+
+About the Role:
+We are looking for a Senior Full-Stack Engineer to join our platform team. You will design, build, and maintain scalable web applications serving millions of users. This role requires deep experience with both frontend and backend technologies, a strong sense of ownership, and the ability to mentor junior engineers.
+
+Responsibilities:
+- Design and implement new features across the full stack (React, Node.js, Python)
+- Lead technical design reviews and contribute to architectural decisions
+- Optimize application performance and scalability
+- Mentor junior engineers through code reviews and pair programming
+- Collaborate with product managers to translate requirements into technical solutions
+- Maintain CI/CD pipelines and contribute to DevOps practices
+
+Requirements:
+- 5+ years of professional software engineering experience
+- Strong proficiency in TypeScript/JavaScript and Python
+- Experience with React (or similar frontend frameworks) and Node.js
+- Solid understanding of relational databases (PostgreSQL preferred)
+- Experience with cloud services (AWS or GCP)
+- Familiarity with containerization (Docker, Kubernetes)
+- Strong communication skills and ability to work in a cross-functional team
+
+Nice to Have:
+- Experience with GraphQL
+- Knowledge of event-driven architectures (Kafka, RabbitMQ)
+- Previous experience in a startup or high-growth environment
+- Open source contributions
