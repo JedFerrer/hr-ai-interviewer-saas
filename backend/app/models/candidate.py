@@ -36,6 +36,11 @@ class Candidate(Base, TimestampMixin):
         DateTime(timezone=True)
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Idempotency for status emails: avoid double-sending on repeated flips.
+    last_status_email_kind: Mapped[str | None] = mapped_column(String(32))
+    last_status_email_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     # Relationships
     job_posting: Mapped["JobPosting"] = relationship(back_populates="candidates")

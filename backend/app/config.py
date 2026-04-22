@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     # App
     app_url: str = "http://localhost:3000"
     api_url: str = "http://localhost:8000"
+    # Share-report token lifetime (days). Configurable per deployment.
+    share_link_ttl_days: int = 7
     allowed_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",

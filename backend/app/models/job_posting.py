@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,10 @@ class JobPosting(Base, TimestampMixin):
         String(64), unique=True, index=True
     )
     cached_jd_questions: Mapped[dict | None] = mapped_column(JSON)  # cached JD-based questions
+    # When True, candidates are emailed automatically on shortlist / reject.
+    auto_send_status_emails: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="0"
+    )
 
     # Relationships
     company: Mapped["Company"] = relationship(back_populates="job_postings")
