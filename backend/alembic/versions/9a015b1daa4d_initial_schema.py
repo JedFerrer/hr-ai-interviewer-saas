@@ -1,8 +1,8 @@
 """initial_schema
 
-Revision ID: 0ea1381f29ef
+Revision ID: 9a015b1daa4d
 Revises: 
-Create Date: 2026-04-19 00:19:38.267079
+Create Date: 2026-04-22 15:25:08.199180
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import sqlite
 
 # revision identifiers, used by Alembic.
-revision: str = '0ea1381f29ef'
+revision: str = '9a015b1daa4d'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -37,6 +37,9 @@ def upgrade() -> None:
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('role', sa.String(length=50), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('password_changed_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('failed_login_count', sa.Integer(), nullable=False),
+    sa.Column('locked_until', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE'),
@@ -59,6 +62,7 @@ def upgrade() -> None:
     sa.Column('interview_config', sqlite.JSON(), nullable=False),
     sa.Column('status', sa.String(length=20), nullable=False),
     sa.Column('interview_link_token', sa.String(length=64), nullable=True),
+    sa.Column('cached_jd_questions', sqlite.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE'),
@@ -75,18 +79,24 @@ def upgrade() -> None:
     sa.Column('job_posting_id', sa.String(length=36), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=True),
     sa.Column('email', sa.String(length=255), nullable=True),
+    sa.Column('normalized_email', sa.String(length=255), nullable=True),
     sa.Column('resume_url', sa.String(length=500), nullable=True),
     sa.Column('resume_parsed_data', sqlite.JSON(), nullable=True),
     sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('overall_score', sa.Numeric(precision=3, scale=1), nullable=True),
     sa.Column('interview_token', sa.String(length=64), nullable=True),
+    sa.Column('interview_link_expires_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['job_posting_id'], ['job_postings.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('normalized_email', 'job_posting_id', name='uq_candidate_email_job')
     )
     with op.batch_alter_table('candidates', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_candidates_interview_token'), ['interview_token'], unique=True)
         batch_op.create_index(batch_op.f('ix_candidates_job_posting_id'), ['job_posting_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_candidates_normalized_email'), ['normalized_email'], unique=False)
         batch_op.create_index(batch_op.f('ix_candidates_status'), ['status'], unique=False)
 
     op.create_table('interviews',
@@ -148,6 +158,7 @@ def downgrade() -> None:
     op.drop_table('interviews')
     with op.batch_alter_table('candidates', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_candidates_status'))
+        batch_op.drop_index(batch_op.f('ix_candidates_normalized_email'))
         batch_op.drop_index(batch_op.f('ix_candidates_job_posting_id'))
         batch_op.drop_index(batch_op.f('ix_candidates_interview_token'))
 
