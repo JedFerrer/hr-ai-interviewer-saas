@@ -1,0 +1,17 @@
+venv/
+.env
+.env.local
+__pycache__/
+*.pyc
+*.pyo
+output/transcripts/
+output/evaluations/
+*.db
+*.db-journal
+.mypy_cache/
+.pytest_cache/
+dist/
+*.egg-info/
+node_modules/
+.next/
+nul
