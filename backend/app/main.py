@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.middleware.rate_limiter import install_rate_limiter
-from app.routers import auth, candidates, interviews, jobs
+from app.routers import auth, candidates, email_templates, interviews, jobs, public, share
 
 settings = get_settings()
 
@@ -130,7 +130,10 @@ async def log_requests(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(candidates.router)
+app.include_router(share.router)
 app.include_router(interviews.router)
+app.include_router(email_templates.router)
+app.include_router(public.router)
 
 
 @app.get("/health")
