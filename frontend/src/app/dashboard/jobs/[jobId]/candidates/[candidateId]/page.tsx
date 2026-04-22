@@ -26,6 +26,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ShareReportDialog } from "@/components/share-report-dialog";
 
 const TABS = [
   { id: "evaluation", label: "Evaluation", icon: BarChart3 },
@@ -126,6 +127,10 @@ export default function CandidateDetailPage() {
             <p className="text-sm text-muted-foreground">{candidate.email}</p>
           </div>
           <div className="hidden sm:flex gap-2 shrink-0">
+            <ShareReportDialog
+              candidateId={candidateId}
+              candidateName={candidate.name}
+            />
             <Button
               variant="outline"
               size="sm"
@@ -150,30 +155,36 @@ export default function CandidateDetailPage() {
           </div>
         </div>
         {/* Mobile action buttons */}
-        <div className="flex gap-2 sm:hidden">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => handleAction("reject")}
-            disabled={
-              isActioning || candidate.status === "rejected"
-            }
-          >
-            <ThumbsDown className="mr-2 h-3.5 w-3.5" />
-            Reject
-          </Button>
-          <Button
-            size="sm"
-            className="flex-1"
-            onClick={() => handleAction("shortlist")}
-            disabled={
-              isActioning || candidate.status === "shortlisted"
-            }
-          >
-            <ThumbsUp className="mr-2 h-3.5 w-3.5" />
-            Shortlist
-          </Button>
+        <div className="flex flex-col gap-2 sm:hidden">
+          <ShareReportDialog
+            candidateId={candidateId}
+            candidateName={candidate.name}
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => handleAction("reject")}
+              disabled={
+                isActioning || candidate.status === "rejected"
+              }
+            >
+              <ThumbsDown className="mr-2 h-3.5 w-3.5" />
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              className="flex-1"
+              onClick={() => handleAction("shortlist")}
+              disabled={
+                isActioning || candidate.status === "shortlisted"
+              }
+            >
+              <ThumbsUp className="mr-2 h-3.5 w-3.5" />
+              Shortlist
+            </Button>
+          </div>
         </div>
       </div>
 
