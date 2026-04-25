@@ -1,19 +1,22 @@
 import type {
   AuthResponse,
-  User,
   JobPosting,
   Candidate,
   CandidateDetail,
+  EmailTemplateKind,
   InterviewStartResponse,
   InterviewMessageResponse,
   ApplicationResponse,
   ApplicationStatusResponse,
+  SendNotificationResponse,
   SessionLandingResponse,
   SessionStartResponse,
   ShareTokenResponse,
   PublicReport,
   EmailTemplates,
   EmailTemplatesUpdate,
+  MeResponse,
+  RefreshResponse,
 } from "./types";
 
 // All API calls go through the Next.js rewrite proxy so the browser sees
@@ -54,14 +57,115 @@ function formatApiError(detail: unknown, status: number): string {
   return `Request failed (HTTP ${status})`;
 }
 
+/**
+ * Typed error thrown for any non-2xx response. Carries the HTTP status and
+ * the raw `detail` payload so callers can branch on structured error codes
+ * (e.g. the candidate-notification conflict guard).
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+// --- Silent token refresh on 401 ----------------------------------------------
+//
+// Strategy:
+//   1. Any non-auth request that returns 401 triggers a single silent call to
+//      POST /auth/refresh, then retries the original request once.
+//   2. Concurrent 401s share ONE in-flight refresh promise (singleton) so we
+//      never fan-out N parallel /auth/refresh calls under bursty load.
+//   3. If the refresh itself fails (expired/revoked cookie), we surface the
+//      original 401 — the AuthProvider's /auth/me probe will then redirect to
+//      /login. We do NOT redirect from here to keep this layer transport-only.
+//   4. Endpoints that must NEVER trigger refresh: /auth/login, /auth/signup,
+//      /auth/refresh, /auth/logout. (Refreshing on these is either nonsensical
+//      or would cause infinite recursion.)
+//
+// The optional `_skipRefresh` flag is used internally for the retry attempt so
+// a second 401 in a row does not trigger an infinite refresh loop.
+
+const REFRESH_PATH = "/auth/refresh";
+const NO_REFRESH_PATHS = new Set<string>([
+  "/auth/login",
+  "/auth/signup",
+  "/auth/logout",
+  REFRESH_PATH,
+]);
+
+let inFlightRefresh: Promise<boolean> | null = null;
+
+/**
+ * Trigger a single silent refresh. Multiple callers awaiting concurrently will
+ * share the same promise. Resolves to `true` if the cookie was refreshed,
+ * `false` if the refresh itself failed (caller should treat as logged out).
+ */
+function refreshSession(): Promise<boolean> {
+  if (inFlightRefresh) return inFlightRefresh;
+
+  inFlightRefresh = (async () => {
+    try {
+      const response = await fetch(`${API_URL}${REFRESH_PATH}`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      // Clear after a microtask so any callers awaiting see the resolved value
+      // before the next request can kick off a new refresh.
+      queueMicrotask(() => {
+        inFlightRefresh = null;
+      });
+    }
+  })();
+
+  return inFlightRefresh;
+}
+
+/** Listeners notified when a silent refresh fails (cookie expired/revoked). */
+const sessionExpiredListeners = new Set<() => void>();
+
+export function onSessionExpired(listener: () => void): () => void {
+  sessionExpiredListeners.add(listener);
+  return () => sessionExpiredListeners.delete(listener);
+}
+
+function notifySessionExpired(): void {
+  for (const listener of sessionExpiredListeners) {
+    try {
+      listener();
+    } catch {
+      // never let a listener break others
+    }
+  }
+}
+
+interface InternalRequestOptions extends RequestInit {
+  /** Internal: skip the 401-refresh interceptor (used for retry + auth endpoints). */
+  _skipRefresh?: boolean;
+}
+
 async function apiRequest<T>(
   path: string,
-  options: RequestInit = {},
+  options: InternalRequestOptions = {},
 ): Promise<T> {
+  const { _skipRefresh, ...fetchOptions } = options;
   const headers: Record<string, string> = {};
 
   // Don't set Content-Type for FormData (browser sets it with boundary)
-  if (!(options.body instanceof FormData)) {
+  if (!(fetchOptions.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -70,26 +174,45 @@ async function apiRequest<T>(
   headers["X-Requested-With"] = "XMLHttpRequest";
 
   // Merge any additional headers from options
-  if (options.headers) {
+  if (fetchOptions.headers) {
     const incoming =
-      options.headers instanceof Headers
-        ? Object.fromEntries(options.headers.entries())
-        : (options.headers as Record<string, string>);
+      fetchOptions.headers instanceof Headers
+        ? Object.fromEntries(fetchOptions.headers.entries())
+        : (fetchOptions.headers as Record<string, string>);
     Object.assign(headers, incoming);
   }
 
   const response = await fetch(`${API_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
     headers,
     // Send the HttpOnly session cookie set by /auth/login.
     credentials: "include",
   });
 
+  // 401 interceptor: silently refresh + retry once.
+  if (
+    response.status === 401 &&
+    !_skipRefresh &&
+    !NO_REFRESH_PATHS.has(path)
+  ) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      return apiRequest<T>(path, { ...options, _skipRefresh: true });
+    }
+    // Refresh failed → cookie is gone or expired. Surface the original error
+    // and let listeners (AuthProvider) handle the redirect to /login.
+    notifySessionExpired();
+  }
+
   if (!response.ok) {
     const error = await response
       .json()
       .catch(() => ({ detail: `HTTP ${response.status}` }));
-    throw new Error(formatApiError(error.detail, response.status));
+    throw new ApiError(
+      formatApiError(error.detail, response.status),
+      response.status,
+      error.detail,
+    );
   }
 
   // 204 No Content -> nothing to parse.
@@ -116,7 +239,9 @@ export const auth = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  me: () => apiRequest<{ user: User }>("/auth/me"),
+  me: () => apiRequest<MeResponse>("/auth/me"),
+  refresh: () =>
+    apiRequest<RefreshResponse>("/auth/refresh", { method: "POST" }),
   logout: () => apiRequest<void>("/auth/logout", { method: "POST" }),
 };
 
@@ -156,6 +281,37 @@ export const candidates = {
     apiRequest<Candidate>(`/candidates/${id}/reject`, {
       method: "POST",
     }),
+  /** HR action: approve a candidate awaiting pre-screen review.
+   *  Generates the interview and emails the invite link. */
+  approveInterview: (id: string) =>
+    apiRequest<CandidateDetail>(`/candidates/${id}/approve-interview`, {
+      method: "POST",
+    }),
+  /** HR action: reject a candidate awaiting pre-screen review.
+   *  Marks the candidate `rejected` without ever emailing an interview link. */
+  rejectPreScreen: (id: string) =>
+    apiRequest<CandidateDetail>(`/candidates/${id}/reject-pre-screen`, {
+      method: "POST",
+    }),
+  /** HR action: explicitly email the candidate about their current status.
+   *
+   *  Throws `ApiError` with status 409 and a `notification_conflict` detail
+   *  when the requested email contradicts the previous one (e.g. the
+   *  candidate was already notified of a rejection and HR is now trying to
+   *  send a shortlist email). Set `force=true` to override the guard \u2014
+   *  typically after sending a `status_correction` email first.
+   */
+  sendNotification: (
+    id: string,
+    args: { kind: EmailTemplateKind; force?: boolean },
+  ) =>
+    apiRequest<SendNotificationResponse>(
+      `/candidates/${id}/send-notification`,
+      {
+        method: "POST",
+        body: JSON.stringify({ kind: args.kind, force: args.force ?? false }),
+      },
+    ),
 };
 
 // Shareable evaluation reports

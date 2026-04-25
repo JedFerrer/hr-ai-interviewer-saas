@@ -57,13 +57,16 @@ class AuthResponse(BaseModel):
     company: CompanyResponse
     access_token: str
     token_type: str = "bearer"
+    expires_in: int  # seconds until access_token expires
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    expires_in: int  # seconds until access_token expires
 
 
 class MeResponse(BaseModel):
     user: UserResponse
     company: CompanyResponse
+    expires_in: int  # seconds until current session cookie expires
