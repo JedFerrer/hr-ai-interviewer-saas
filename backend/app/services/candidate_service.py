@@ -18,15 +18,38 @@ from app.models.job_posting import JobPosting
 logger = logging.getLogger(__name__)
 
 
-# Map a candidate status to an email-template kind. A status with no entry
-# triggers no email.
-_STATUS_TO_EMAIL_KIND: dict[str, str] = {
+# Map a candidate status to its corresponding email-template kind. Statuses
+# without an entry have no canonical notification.
+STATUS_TO_EMAIL_KIND: dict[str, str] = {
     "shortlisted": "shortlist",
     "rejected": "reject",
 }
 
 # Suppress duplicate sends if HR flips back-and-forth quickly.
 _EMAIL_IDEMPOTENCY_WINDOW = timedelta(minutes=1)
+
+
+class NotificationConflict(HTTPException):
+    """Raised when sending a notification would contradict the previous one.
+
+    HR can override by re-issuing the request with `force=True` (typically
+    paired with a `status_correction` email so the candidate isn't whip-sawed).
+    """
+
+    def __init__(self, *, previous_kind: str, requested_kind: str, last_sent_at: datetime | None):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "notification_conflict",
+                "message": (
+                    f"This candidate was previously notified with a '{previous_kind}' "
+                    f"email. Sending a '{requested_kind}' email now may confuse them."
+                ),
+                "previous_kind": previous_kind,
+                "requested_kind": requested_kind,
+                "last_sent_at": last_sent_at.isoformat() if last_sent_at else None,
+            },
+        )
 
 
 async def get_candidate_detail(
@@ -57,52 +80,166 @@ async def update_candidate_status(
 ) -> Candidate:
     """Update candidate status (shortlist/reject). Enforces company ownership.
 
-    Side effect: when the new status maps to a notification kind, the job has
-    `auto_send_status_emails` enabled, and we haven't already sent the same
-    kind very recently, an email is dispatched. Email failures never break
-    the status change.
+    NOTE: Status changes never send emails directly anymore. The internal
+    decision (status) and the external notification (email to candidate) are
+    intentionally decoupled so HR can change their mind without immediately
+    blasting the candidate. Use `send_status_notification()` to dispatch the
+    email when ready.
     """
     candidate = await get_candidate_detail(db, candidate_id, company_id)
-    previous_status = candidate.status
     candidate.status = new_status
     await db.commit()
     await db.refresh(candidate)
-
-    if new_status != previous_status:
-        await _maybe_send_status_email(db, candidate, new_status)
-
     return candidate
 
 
-async def _maybe_send_status_email(
-    db: AsyncSession, candidate: Candidate, new_status: str
-) -> None:
-    """Send a status notification email if all conditions are satisfied."""
-    kind = _STATUS_TO_EMAIL_KIND.get(new_status)
-    if kind is None:
-        return
+async def send_status_notification(
+    db: AsyncSession,
+    candidate_id: str,
+    company_id: str,
+    *,
+    kind: str,
+    force: bool = False,
+) -> tuple[Candidate, bool]:
+    """Send a status email to the candidate. Returns (candidate, sent_bool).
 
-    # Need an email address to send anything.
+    `kind` must be one of the supported template kinds (shortlist, reject,
+    status_correction). When the candidate was previously notified with a
+    DIFFERENT non-correction kind, the call raises `NotificationConflict`
+    unless `force=True` — this is the safety net against contradictory
+    emails (e.g. reject followed by shortlist).
+    """
+    from app.models.email_template import ALLOWED_TEMPLATE_KINDS
+
+    if kind not in ALLOWED_TEMPLATE_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported notification kind: {kind}",
+        )
+
+    candidate = await get_candidate_detail(db, candidate_id, company_id)
+
     if not candidate.email:
-        return
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Candidate has no email address on file.",
+        )
 
-    # Job-level toggle.
-    job = candidate.job_posting
-    if job is None or not getattr(job, "auto_send_status_emails", False):
-        return
+    previous_kind = candidate.last_status_email_kind
+    # Only shortlist/reject conflict with each other. status_correction is
+    # explicitly an apology / clarification and can always be sent.
+    decision_kinds = {"shortlist", "reject"}
+    if (
+        not force
+        and kind in decision_kinds
+        and previous_kind in decision_kinds
+        and previous_kind != kind
+    ):
+        raise NotificationConflict(
+            previous_kind=previous_kind,
+            requested_kind=kind,
+            last_sent_at=candidate.last_status_email_sent_at,
+        )
 
-    # Idempotency: skip if the same kind was sent very recently.
+    # Same-kind idempotency: don't double-send within the window.
     last_sent = candidate.last_status_email_sent_at
-    if last_sent is not None and candidate.last_status_email_kind == kind:
+    if (
+        previous_kind == kind
+        and last_sent is not None
+    ):
         if last_sent.tzinfo is None:
             last_sent = last_sent.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - last_sent < _EMAIL_IDEMPOTENCY_WINDOW:
-            return
+            return candidate, False
 
+    sent = await _dispatch_status_email(db, candidate, kind)
+    return candidate, sent
+
+
+async def approve_pre_screen(
+    db: AsyncSession, candidate_id: str, company_id: str
+) -> Candidate:
+    """HR approves a `review_pending` candidate → generate interview + send invite.
+
+    Idempotent-ish: if the candidate is already `ready`/`in_progress`/etc.,
+    we return the current state without re-sending the invite. Only callable
+    on candidates currently in `review_pending` (or `error` as a manual
+    rescue path); everything else raises 409.
+    """
+    candidate = await get_candidate_detail(db, candidate_id, company_id)
+
+    if candidate.status not in {"review_pending", "error"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot approve a candidate in status '{candidate.status}'. "
+                "Only candidates awaiting HR review can be approved."
+            ),
+        )
+
+    # We need the parsed resume to build personalized questions. If parsing
+    # failed earlier the candidate cannot be approved without re-applying.
+    if not candidate.resume_parsed_data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Resume parsing did not complete; cannot generate an interview.",
+        )
+
+    # Lazy imports keep candidate_service free of LLM/email deps at module
+    # load and avoid a circular import with interview_service.
+    from app.services.interview_service import _build_interview_and_invite
+    from app.services.llm_client import get_async_openai_client
+
+    client = get_async_openai_client()
+    job = candidate.job_posting
+
+    await _build_interview_and_invite(
+        db=db,
+        candidate=candidate,
+        job=job,
+        resume_data=candidate.resume_parsed_data,
+        client=client,
+    )
+
+    # Refresh to pull in any committed changes from _build_interview_and_invite.
+    await db.refresh(candidate)
+    return candidate
+
+
+async def reject_pre_screen(
+    db: AsyncSession, candidate_id: str, company_id: str
+) -> Candidate:
+    """HR rejects a `review_pending` candidate. Marks the candidate rejected and
+    optionally fires the standard reject email when the job opt-in is on.
+    """
+    candidate = await get_candidate_detail(db, candidate_id, company_id)
+
+    if candidate.status not in {"review_pending", "error"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot pre-screen reject a candidate in status '{candidate.status}'."
+            ),
+        )
+
+    return await update_candidate_status(db, candidate_id, company_id, "rejected")
+
+
+async def _dispatch_status_email(
+    db: AsyncSession, candidate: Candidate, kind: str
+) -> bool:
+    """Render and send a status email. Returns True if Resend accepted the message.
+
+    Failures are logged but never raised — callers treat email as best-effort.
+    On success, `last_status_email_kind` / `last_status_email_sent_at` are
+    persisted so the UI can surface "last notified" and the conflict guard
+    can compare against future requests.
+    """
     # Lazy imports avoid a circular dependency at module load.
     from app.services import email_service, email_template_service
 
-    company = job.company
+    job = candidate.job_posting
+    company = job.company if job is not None else None
     company_name = company.name if company else ""
 
     try:
@@ -111,7 +248,7 @@ async def _maybe_send_status_email(
             company_id=job.company_id,
             kind=kind,
             candidate_name=candidate.name or "",
-            job_title=job.title,
+            job_title=job.title if job else "",
             company_name=company_name,
         )
         sent = await email_service.send_status_email(
@@ -120,14 +257,14 @@ async def _maybe_send_status_email(
             body_html=body_html,
         )
     except Exception:
-        # Never let a notification failure roll back the status change.
         logger.exception("Failed to send %s status email for candidate %s", kind, candidate.id)
-        return
+        return False
 
     if sent:
         candidate.last_status_email_kind = kind
         candidate.last_status_email_sent_at = datetime.now(timezone.utc)
         await db.commit()
+    return bool(sent)
 
 
 async def list_candidates(
@@ -155,6 +292,8 @@ async def list_candidates(
             Candidate.status,
             Candidate.resume_url,
             Candidate.completed_at,
+            Candidate.resume_match_score,
+            Candidate.pre_screen_decision,
             EvaluationRecord.overall_score.label("overall_score"),
             EvaluationRecord.skill_match.label("skill_match"),
             EvaluationRecord.communication.label("communication"),
@@ -220,6 +359,10 @@ async def list_candidates(
             ),
             "cultural_fit": float(row.cultural_fit) if row.cultural_fit is not None else None,
             "recommendation": row.recommendation,
+            "resume_match_score": (
+                float(row.resume_match_score) if row.resume_match_score is not None else None
+            ),
+            "pre_screen_decision": row.pre_screen_decision,
         }
         for row in rows
     ]

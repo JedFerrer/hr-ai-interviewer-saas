@@ -14,12 +14,82 @@ from app.schemas.candidate import (
     CandidateDetailResponse,
     EvaluationResponse,
     InterviewSummaryResponse,
+    PreScreenSummary,
+    SendNotificationRequest,
+    SendNotificationResponse,
     StatusUpdateRequest,
 )
 from app.services import candidate_service
 from app.utils.security import csrf_protect, get_current_user
 
 router = APIRouter(prefix="/candidates", tags=["candidates"], dependencies=[Depends(csrf_protect)])
+
+
+def _build_pre_screen_summary(candidate) -> PreScreenSummary | None:
+    """Bundle pre-screen-related columns into a response object, if any are set."""
+    has_data = any(
+        getattr(candidate, name) is not None
+        for name in (
+            "resume_match_score",
+            "resume_match_confidence",
+            "pre_screen_decision",
+            "pre_screen_reason",
+            "resume_match_breakdown",
+            "pre_screened_at",
+            "invite_sent_at",
+        )
+    )
+    if not has_data:
+        return None
+    return PreScreenSummary(
+        score=(
+            float(candidate.resume_match_score)
+            if candidate.resume_match_score is not None
+            else None
+        ),
+        confidence=(
+            float(candidate.resume_match_confidence)
+            if candidate.resume_match_confidence is not None
+            else None
+        ),
+        decision=candidate.pre_screen_decision,
+        reason=candidate.pre_screen_reason,
+        breakdown=candidate.resume_match_breakdown,
+        pre_screened_at=candidate.pre_screened_at,
+        invite_sent_at=candidate.invite_sent_at,
+    )
+
+
+def _build_detail_response(
+    candidate,
+    *,
+    interview: InterviewSummaryResponse | None = None,
+    evaluation: EvaluationResponse | None = None,
+) -> CandidateDetailResponse:
+    """Single source of truth for the candidate-detail payload.
+
+    Reads `auto_send_status_emails` from the eagerly-loaded job_posting and
+    surfaces the most recent candidate notification so the UI can warn HR
+    before triggering a status change or a contradictory email.
+    """
+    job = getattr(candidate, "job_posting", None)
+    return CandidateDetailResponse(
+        id=candidate.id,
+        name=candidate.name,
+        email=candidate.email,
+        status=candidate.status,
+        resume_url=candidate.resume_url,
+        resume_parsed_data=candidate.resume_parsed_data,
+        interview=interview,
+        evaluation=evaluation,
+        pre_screen=_build_pre_screen_summary(candidate),
+        job_auto_send_status_emails=bool(
+            getattr(job, "auto_send_status_emails", False)
+        ),
+        last_notification_kind=candidate.last_status_email_kind,
+        last_notification_sent_at=candidate.last_status_email_sent_at,
+        created_at=candidate.created_at,
+    )
 
 
 @router.get("/{candidate_id}", response_model=CandidateDetailResponse)
@@ -64,17 +134,42 @@ async def get_candidate(
                 recommendation=ev.recommendation,
             )
 
-    return CandidateDetailResponse(
-        id=candidate.id,
-        name=candidate.name,
-        email=candidate.email,
-        status=candidate.status,
-        resume_url=candidate.resume_url,
-        resume_parsed_data=candidate.resume_parsed_data,
+    return _build_detail_response(
+        candidate,
         interview=interview_resp,
         evaluation=evaluation_resp,
-        created_at=candidate.created_at,
     )
+
+
+@router.post("/{candidate_id}/approve-interview", response_model=CandidateDetailResponse)
+async def approve_interview(
+    candidate_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """HR action: approve a candidate awaiting pre-screen review.
+
+    Generates the interview, marks the candidate `ready`, and emails the
+    invite link. Only valid for candidates currently in `review_pending`
+    (or `error` as a manual rescue path).
+    """
+    candidate = await candidate_service.approve_pre_screen(
+        db, candidate_id, user.company_id
+    )
+    return _build_detail_response(candidate)
+
+
+@router.post("/{candidate_id}/reject-pre-screen", response_model=CandidateDetailResponse)
+async def reject_pre_screen(
+    candidate_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """HR action: reject a candidate awaiting pre-screen review (no interview)."""
+    candidate = await candidate_service.reject_pre_screen(
+        db, candidate_id, user.company_id
+    )
+    return _build_detail_response(candidate)
 
 
 @router.post("/{candidate_id}/shortlist", response_model=CandidateDetailResponse)
@@ -84,19 +179,13 @@ async def shortlist_candidate(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Move candidate to shortlisted status."""
+    """Move candidate to shortlisted status. Does NOT send an email — use
+    `POST /candidates/{id}/send-notification` to notify the candidate.
+    """
     candidate = await candidate_service.update_candidate_status(
         db, candidate_id, user.company_id, "shortlisted"
     )
-    return CandidateDetailResponse(
-        id=candidate.id,
-        name=candidate.name,
-        email=candidate.email,
-        status=candidate.status,
-        resume_url=candidate.resume_url,
-        resume_parsed_data=candidate.resume_parsed_data,
-        created_at=candidate.created_at,
-    )
+    return _build_detail_response(candidate)
 
 
 @router.post("/{candidate_id}/reject", response_model=CandidateDetailResponse)
@@ -106,18 +195,44 @@ async def reject_candidate(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Move candidate to rejected status."""
+    """Move candidate to rejected status. Does NOT send an email — use
+    `POST /candidates/{id}/send-notification` to notify the candidate.
+    """
     candidate = await candidate_service.update_candidate_status(
         db, candidate_id, user.company_id, "rejected"
     )
-    return CandidateDetailResponse(
-        id=candidate.id,
-        name=candidate.name,
-        email=candidate.email,
-        status=candidate.status,
-        resume_url=candidate.resume_url,
-        resume_parsed_data=candidate.resume_parsed_data,
-        created_at=candidate.created_at,
+    return _build_detail_response(candidate)
+
+
+@router.post(
+    "/{candidate_id}/send-notification",
+    response_model=SendNotificationResponse,
+)
+async def send_candidate_notification(
+    candidate_id: str,
+    body: SendNotificationRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Explicitly email the candidate about their current status.
+
+    Returns 409 with a `notification_conflict` payload when the new email
+    would contradict the previously-sent one (e.g. reject → shortlist) and
+    `force` is not set. The frontend handles the 409 by prompting HR to
+    either confirm the override or send a `status_correction` email first.
+    """
+    candidate, sent = await candidate_service.send_status_notification(
+        db,
+        candidate_id,
+        user.company_id,
+        kind=body.kind,
+        force=body.force,
+    )
+    return SendNotificationResponse(
+        sent=sent,
+        kind=body.kind,
+        last_notification_kind=candidate.last_status_email_kind,
+        last_notification_sent_at=candidate.last_status_email_sent_at,
     )
 
 

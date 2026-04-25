@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-TemplateKind = Literal["shortlist", "reject"]
+TemplateKind = Literal["shortlist", "reject", "status_correction"]
 
 
 # Default templates rendered when a company has not customized the kind yet.
@@ -37,6 +37,19 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "<p>— The {{company_name}} hiring team</p>"
         ),
     },
+    "status_correction": {
+        "subject": "Correction regarding your application for {{job_title}} at {{company_name}}",
+        "body_html": (
+            "<p>Hi {{candidate_name}},</p>"
+            "<p>You may have recently received an email from us regarding your "
+            "application for the <strong>{{job_title}}</strong> role at "
+            "<strong>{{company_name}}</strong>. That message was sent in error, "
+            "and we sincerely apologise for any confusion it caused.</p>"
+            "<p>A member of our team will follow up shortly with the correct "
+            "status of your application. Thank you for your patience.</p>"
+            "<p>— The {{company_name}} hiring team</p>"
+        ),
+    },
 }
 
 
@@ -48,8 +61,10 @@ class TemplateBody(BaseModel):
 class EmailTemplatesResponse(BaseModel):
     shortlist: TemplateBody
     reject: TemplateBody
+    status_correction: TemplateBody
 
 
 class EmailTemplatesUpdateRequest(BaseModel):
     shortlist: TemplateBody | None = None
     reject: TemplateBody | None = None
+    status_correction: TemplateBody | None = None

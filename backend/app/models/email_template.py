@@ -13,7 +13,16 @@ from app.models.base import Base, generate_uuid
 # Supported template kinds. Kept as plain strings (no enum) per repo conventions.
 TEMPLATE_KIND_SHORTLIST = "shortlist"
 TEMPLATE_KIND_REJECT = "reject"
-ALLOWED_TEMPLATE_KINDS = {TEMPLATE_KIND_SHORTLIST, TEMPLATE_KIND_REJECT}
+# A correction email is sent when HR previously notified the candidate of one
+# decision (e.g. "rejected") and needs to walk it back. Kept as a separate
+# kind so the copy can apologise / clarify rather than re-using shortlist or
+# reject wording verbatim.
+TEMPLATE_KIND_STATUS_CORRECTION = "status_correction"
+ALLOWED_TEMPLATE_KINDS = {
+    TEMPLATE_KIND_SHORTLIST,
+    TEMPLATE_KIND_REJECT,
+    TEMPLATE_KIND_STATUS_CORRECTION,
+}
 
 
 class EmailTemplate(Base):

@@ -27,11 +27,12 @@ async def get_templates(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Return current shortlist + reject templates (defaults if not customized)."""
+    """Return current shortlist / reject / status_correction templates (defaults if not customized)."""
     templates = await email_template_service.get_templates_for_company(db, user.company_id)
     return EmailTemplatesResponse(
         shortlist=templates["shortlist"],
         reject=templates["reject"],
+        status_correction=templates["status_correction"],
     )
 
 
@@ -41,7 +42,7 @@ async def update_templates(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Upsert one or both templates for the current company."""
+    """Upsert any subset of the supported templates for the current company."""
     if body.shortlist is not None:
         await email_template_service.upsert_template(
             db, user.company_id, "shortlist", body.shortlist
@@ -50,8 +51,13 @@ async def update_templates(
         await email_template_service.upsert_template(
             db, user.company_id, "reject", body.reject
         )
+    if body.status_correction is not None:
+        await email_template_service.upsert_template(
+            db, user.company_id, "status_correction", body.status_correction
+        )
     templates = await email_template_service.get_templates_for_company(db, user.company_id)
     return EmailTemplatesResponse(
         shortlist=templates["shortlist"],
         reject=templates["reject"],
+        status_correction=templates["status_correction"],
     )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,6 +35,26 @@ class JobPosting(Base, TimestampMixin):
     # When True, candidates are emailed automatically on shortlist / reject.
     auto_send_status_emails: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="0"
+    )
+    # Resume-based screening policy.
+    # screening_mode:
+    #   "auto_all"         — invite every candidate whose resume parses (legacy)
+    #   "hybrid_threshold" — score-based; clear-fit auto-invite, borderline → HR review
+    #   "manual_all"       — every applicant lands in HR review queue
+    screening_mode: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="auto_all", server_default="auto_all"
+    )
+    # Score (0-100) at/above which candidates are auto-invited under hybrid mode.
+    auto_invite_threshold: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=75, server_default="75"
+    )
+    # Score (0-100) below which candidates are queued for HR review under
+    # hybrid mode. Anything in [review_threshold, auto_invite_threshold) goes
+    # to the review queue. Below review_threshold is also routed to HR review
+    # by default — strict auto-rejection is intentionally not implemented in
+    # v1 (see RESUME_GATE_AND_INVITE_PLAN §13.2).
+    review_threshold: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=55, server_default="55"
     )
 
     # Relationships

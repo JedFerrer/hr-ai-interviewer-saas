@@ -27,8 +27,25 @@ class Candidate(Base, TimestampMixin):
     resume_url: Mapped[str | None] = mapped_column(String(500))
     resume_parsed_data: Mapped[dict | None] = mapped_column(JSON)
     # Statuses: applied → processing → ready → in_progress → completed → shortlisted / rejected
+    # plus: review_pending (awaiting HR pre-screen approval), error (parse / processing failure)
     status: Mapped[str] = mapped_column(String(20), default="applied", index=True)
     overall_score: Mapped[float | None] = mapped_column(Numeric(3, 1))
+    # Resume-vs-JD match score (0-100). Populated by the screening pipeline
+    # before any interview-related decision is made.
+    resume_match_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    # LLM-reported confidence in the match score (0-1).
+    resume_match_confidence: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    # Structured breakdown returned by the scorer (matched_skills, missing,
+    # rationale, etc.). Stored as opaque JSON so we can iterate the schema
+    # without migrations.
+    resume_match_breakdown: Mapped[dict | None] = mapped_column(JSON)
+    # Final pre-screen routing decision: "auto_invite" | "review" | "reject"
+    # | "error". Mirrored separately from `status` so HR can see the
+    # automated recommendation even after manually approving / rejecting.
+    pre_screen_decision: Mapped[str | None] = mapped_column(String(32))
+    pre_screen_reason: Mapped[str | None] = mapped_column(String(500))
+    pre_screened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    invite_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     interview_token: Mapped[str | None] = mapped_column(
         String(64), unique=True, index=True
     )

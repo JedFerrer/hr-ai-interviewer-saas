@@ -6,7 +6,11 @@ import { ArrowLeft, Loader2, Mail, RotateCcw, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { emailTemplates } from "@/lib/api";
-import type { EmailTemplateBody, EmailTemplates } from "@/lib/types";
+import type {
+  EmailTemplateBody,
+  EmailTemplateKind,
+  EmailTemplates,
+} from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,26 +31,37 @@ const PLACEHOLDERS = [
 ] as const;
 
 const KIND_META: Record<
-  "shortlist" | "reject",
+  EmailTemplateKind,
   { title: string; description: string }
 > = {
   shortlist: {
     title: "Shortlist email",
     description:
-      "Sent automatically when you shortlist a candidate (if enabled on the job).",
+      "Sent when you click \u201cNotify candidate\u201d on a shortlisted candidate.",
   },
   reject: {
     title: "Rejection email",
     description:
-      "Sent automatically when you reject a candidate (if enabled on the job).",
+      "Sent when you click \u201cNotify candidate\u201d on a rejected candidate.",
+  },
+  status_correction: {
+    title: "Correction email",
+    description:
+      "Sent to apologise when a previous email went out in error \u2014 the candidate is told a follow-up is on the way.",
   },
 };
+
+const TEMPLATE_KINDS: readonly EmailTemplateKind[] = [
+  "shortlist",
+  "reject",
+  "status_correction",
+] as const;
 
 export default function EmailTemplatesPage() {
   const [templates, setTemplates] = useState<EmailTemplates | null>(null);
   const [originals, setOriginals] = useState<EmailTemplates | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [saving, setSaving] = useState<"shortlist" | "reject" | null>(null);
+  const [saving, setSaving] = useState<EmailTemplateKind | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,7 +76,7 @@ export default function EmailTemplatesPage() {
   }, []);
 
   const setField = (
-    kind: "shortlist" | "reject",
+    kind: EmailTemplateKind,
     field: keyof EmailTemplateBody,
     value: string,
   ) =>
@@ -75,18 +90,22 @@ export default function EmailTemplatesPage() {
     );
 
   const isDirty = useMemo(() => {
-    if (!templates || !originals) return { shortlist: false, reject: false };
-    return {
-      shortlist:
-        templates.shortlist.subject !== originals.shortlist.subject ||
-        templates.shortlist.body_html !== originals.shortlist.body_html,
-      reject:
-        templates.reject.subject !== originals.reject.subject ||
-        templates.reject.body_html !== originals.reject.body_html,
+    const empty: Record<EmailTemplateKind, boolean> = {
+      shortlist: false,
+      reject: false,
+      status_correction: false,
     };
+    if (!templates || !originals) return empty;
+    const result = { ...empty };
+    for (const kind of TEMPLATE_KINDS) {
+      result[kind] =
+        templates[kind].subject !== originals[kind].subject ||
+        templates[kind].body_html !== originals[kind].body_html;
+    }
+    return result;
   }, [templates, originals]);
 
-  const save = async (kind: "shortlist" | "reject") => {
+  const save = async (kind: EmailTemplateKind) => {
     if (!templates) return;
     setSaving(kind);
     try {
@@ -103,7 +122,7 @@ export default function EmailTemplatesPage() {
     }
   };
 
-  const revert = (kind: "shortlist" | "reject") => {
+  const revert = (kind: EmailTemplateKind) => {
     if (!originals) return;
     setTemplates((prev) =>
       prev ? { ...prev, [kind]: originals[kind] } : prev,
@@ -147,8 +166,8 @@ export default function EmailTemplatesPage() {
             Status email templates
           </h1>
           <p className="text-sm text-muted-foreground">
-            Customise the messages candidates receive when shortlisted or
-            rejected.
+            Customise the messages candidates receive when shortlisted,
+            rejected, or when a previous email needs to be corrected.
           </p>
         </div>
       </div>
@@ -170,7 +189,7 @@ export default function EmailTemplatesPage() {
         </CardContent>
       </Card>
 
-      {(["shortlist", "reject"] as const).map((kind) => {
+      {TEMPLATE_KINDS.map((kind) => {
         const t = templates[kind];
         const dirty = isDirty[kind];
         return (

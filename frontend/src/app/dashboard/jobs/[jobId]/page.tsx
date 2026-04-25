@@ -72,6 +72,17 @@ export default function JobDetailPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [compareOpen, setCompareOpen] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
+  // Pre-screen actions (approve/reject) trigger irreversible side effects
+  // (email send, interview row creation), so they always go through a
+  // confirmation dialog. Store the pending request here so the parent can
+  // render a single dialog driven by both the row buttons and the comparison
+  // drawer.
+  const [preScreenConfirm, setPreScreenConfirm] = useState<{
+    candidateId: string;
+    candidateName: string;
+    candidateEmail: string | null;
+    kind: "approve_pre_screen" | "reject_pre_screen";
+  } | null>(null);
 
   const fetchCandidates = useCallback(
     (key: SortKey, order: SortOrder) =>
@@ -128,69 +139,83 @@ export default function JobDetailPage() {
     candidateId: string,
     action: "shortlist" | "reject",
   ) => {
-    // Capture the previous status so we can undo.
-    const previous = candidateList.find((c) => c.id === candidateId);
-    if (!previous) return;
-    const previousStatus = previous.status;
+    const candidate = candidateList.find((c) => c.id === candidateId);
+    if (!candidate) return;
+
+    // For candidates awaiting pre-screen review, the same thumbs-up / thumbs-down
+    // buttons mean different things: approve the candidate for an interview, or
+    // reject them at the pre-screen stage. Both endpoints are intentionally
+    // non-undoable (approve sends an email, reject is a terminal status).
+    const isPreScreenDecision = candidate.status === "review_pending";
 
     setActioningId(candidateId);
     try {
-      const fn =
-        action === "shortlist"
-          ? candidatesApi.shortlist
-          : candidatesApi.reject;
+      let fn: (id: string) => Promise<{ status: string }>;
+      if (isPreScreenDecision) {
+        fn =
+          action === "shortlist"
+            ? (id) => candidatesApi.approveInterview(id)
+            : (id) => candidatesApi.rejectPreScreen(id);
+      } else {
+        fn =
+          action === "shortlist"
+            ? candidatesApi.shortlist
+            : candidatesApi.reject;
+      }
       const updated = await fn(candidateId);
       const newStatus = updated.status;
       setCandidateList((prev) =>
         prev.map((c) =>
-          c.id === candidateId ? { ...c, status: newStatus } : c,
+          c.id === candidateId ? { ...c, status: newStatus as Candidate["status"] } : c,
         ),
       );
+
+      if (isPreScreenDecision) {
+        toast.success(
+          action === "shortlist"
+            ? "Interview invite sent"
+            : "Candidate rejected at pre-screen",
+        );
+        return;
+      }
+
       toast.success(
         action === "shortlist" ? "Candidate shortlisted" : "Candidate rejected",
-        {
-          action: {
-            label: "Undo",
-            onClick: async () => {
-              try {
-                // Re-apply the previous status via the appropriate endpoint.
-                const undoFn =
-                  previousStatus === "shortlisted"
-                    ? candidatesApi.shortlist
-                    : previousStatus === "rejected"
-                      ? candidatesApi.reject
-                      : null;
-                if (undoFn) {
-                  const reverted = await undoFn(candidateId);
-                  setCandidateList((prev) =>
-                    prev.map((c) =>
-                      c.id === candidateId
-                        ? { ...c, status: reverted.status }
-                        : c,
-                    ),
-                  );
-                } else {
-                  // Previous status wasn't shortlisted/rejected — there's no
-                  // dedicated endpoint to restore it, so just re-fetch.
-                  const res = await jobsApi.candidates(
-                    jobId,
-                    `sort=${sortKey}&order=${sortOrder}`,
-                  );
-                  setCandidateList(res.candidates);
-                }
-                toast.info("Action undone");
-              } catch {
-                toast.error("Failed to undo");
-              }
-            },
-          },
-        },
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Action failed");
     } finally {
       setActioningId(null);
     }
+  };
+
+  // Row-level entry point: pre-screen rows route through the confirmation
+  // dialog; all other rows go straight to the inline handler.
+  const requestInlineAction = (
+    candidate: Candidate,
+    action: "shortlist" | "reject",
+  ) => {
+    if (candidate.status === "review_pending") {
+      setPreScreenConfirm({
+        candidateId: candidate.id,
+        candidateName: candidate.name,
+        candidateEmail: candidate.email,
+        kind: action === "shortlist" ? "approve_pre_screen" : "reject_pre_screen",
+      });
+      return;
+    }
+    void handleInlineAction(candidate.id, action);
+  };
+
+  const confirmPreScreen = async () => {
+    if (!preScreenConfirm) return;
+    // Reuse the same handler — it already routes review_pending statuses to
+    // the approve/reject pre-screen endpoints.
+    await handleInlineAction(
+      preScreenConfirm.candidateId,
+      preScreenConfirm.kind === "approve_pre_screen" ? "shortlist" : "reject",
+    );
+    setPreScreenConfirm(null);
   };
 
   if (isLoading) {
@@ -434,11 +459,59 @@ export default function JobDetailPage() {
       {/* Candidate table */}
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* Mobile layout: select + compare button in one row (< 1200px) */}
+          <div className="flex items-center justify-between gap-3 min-[1200px]:hidden">
+            <CardTitle className="text-base shrink-0">Candidates</CardTitle>
+            <div className="flex items-center gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-8 rounded-md border border-input bg-background px-2.5 text-xs font-medium shadow-sm focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+              >
+                {[
+                  { value: "all", label: "All Statuses" },
+                  { value: "review_pending", label: "Awaiting Review" },
+                  { value: "completed", label: "Completed" },
+                  { value: "shortlisted", label: "Shortlisted" },
+                  { value: "rejected", label: "Rejected" },
+                  { value: "in_progress", label: "In Progress" },
+                  { value: "ready", label: "Ready" },
+                  { value: "processing", label: "Processing" },
+                ].map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant={canCompare ? "default" : "outline"}
+                disabled={!canCompare}
+                onClick={() => setCompareOpen(true)}
+                title={
+                  canCompare
+                    ? `Compare ${selectedCandidates.length} candidates`
+                    : `Select ${MIN_COMPARE}–${MAX_COMPARE} candidates to compare`
+                }
+                className="h-8 shrink-0"
+              >
+                <GitCompare className="h-3.5 w-3.5" />
+                {selectedCandidates.length > 0 && (
+                  <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary-foreground/20 px-1 text-[10px] font-bold leading-none">
+                    {selectedCandidates.length}
+                  </span>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Desktop layout: button filters + compare — original look (≥ 1200px) */}
+          <div className="hidden min-[1200px]:flex min-[1200px]:flex-row min-[1200px]:items-center min-[1200px]:justify-between gap-3">
             <CardTitle className="text-base shrink-0">Candidates</CardTitle>
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               {[
                 "all",
+                "review_pending",
                 "completed",
                 "shortlisted",
                 "rejected",
@@ -562,10 +635,10 @@ export default function JobDetailPage() {
                       }
                       onToggleSelected={() => toggleSelected(candidate.id)}
                       onShortlist={() =>
-                        handleInlineAction(candidate.id, "shortlist")
+                        requestInlineAction(candidate, "shortlist")
                       }
                       onReject={() =>
-                        handleInlineAction(candidate.id, "reject")
+                        requestInlineAction(candidate, "reject")
                       }
                       isActioning={actioningId === candidate.id}
                     />
@@ -586,6 +659,84 @@ export default function JobDetailPage() {
         onReject={(id) => handleInlineAction(id, "reject")}
         pendingId={actioningId}
       />
+
+      {/* Pre-screen confirmation: irreversible side effects (email send and
+          interview row creation), so we always require an explicit confirm. */}
+      <AlertDialog
+        open={preScreenConfirm !== null}
+        onOpenChange={(open) => !open && setPreScreenConfirm(null)}
+      >
+        <AlertDialogContent>
+          {preScreenConfirm?.kind === "approve_pre_screen" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Send interview invite?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will create an interview for{" "}
+                  <span className="font-medium">
+                    {preScreenConfirm.candidateName}
+                  </span>{" "}
+                  and email the invite link
+                  {preScreenConfirm.candidateEmail ? (
+                    <>
+                      {" "}to{" "}
+                      <span className="font-medium">
+                        {preScreenConfirm.candidateEmail}
+                      </span>
+                    </>
+                  ) : null}{" "}
+                  immediately. The email cannot be recalled.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={actioningId !== null}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={actioningId !== null}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmPreScreen();
+                  }}
+                >
+                  {actioningId ? "Sending…" : "Approve & send invite"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+          {preScreenConfirm?.kind === "reject_pre_screen" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reject this candidate?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  <span className="font-medium">
+                    {preScreenConfirm.candidateName}
+                  </span>{" "}
+                  will be marked as rejected and will not move forward to an
+                  interview. No email is sent to the candidate by this action
+                  — open the candidate&apos;s page and use{" "}
+                  <span className="font-medium">Notify candidate</span> when
+                  you&apos;re ready to send the rejection email.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={actioningId !== null}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={actioningId !== null}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmPreScreen();
+                  }}
+                >
+                  {actioningId ? "Rejecting…" : "Reject candidate"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -657,6 +808,9 @@ const CANDIDATE_STATUS_STYLES: Record<string, string> = {
     "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
   applied:
     "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
+  review_pending:
+    "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  error: "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300",
 };
 
 function scoreColor(score: number | null): string {
@@ -757,30 +911,75 @@ function CandidateRow({
         )}
       </td>
       <td className="py-3">
-        <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-green-700 hover:bg-green-100 hover:text-green-800 dark:text-green-400 dark:hover:bg-green-900/30"
-            onClick={onShortlist}
-            disabled={isActioning || candidate.status === "shortlisted"}
-            title="Shortlist"
-          >
-            <ThumbsUp className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-red-700 hover:bg-red-100 hover:text-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
-            onClick={onReject}
-            disabled={isActioning || candidate.status === "rejected"}
-            title="Reject"
-          >
-            <ThumbsDown className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <CandidateRowActions
+          candidate={candidate}
+          onShortlist={onShortlist}
+          onReject={onReject}
+          isActioning={isActioning}
+        />
       </td>
     </tr>
+  );
+}
+
+/* Decides which inline icon-buttons to expose for a candidate row.
+ * Mirrors the candidate-detail page's stage logic:
+ *   • review_pending → Approve & invite + Reject (pre-screen)
+ *   • has evaluation (overall_score != null) → Shortlist + Reject
+ *   • interview pending / processing / error w/o eval → no buttons
+ *
+ * The actual confirmation dialogs and mutation logic live in the parent
+ * page; this component just decides visibility. */
+function CandidateRowActions({
+  candidate,
+  onShortlist,
+  onReject,
+  isActioning,
+}: {
+  candidate: Candidate;
+  onShortlist: () => void;
+  onReject: () => void;
+  isActioning: boolean;
+}) {
+  const isReviewPending = candidate.status === "review_pending";
+  const hasEvaluation =
+    candidate.overall_score !== null && candidate.overall_score !== undefined;
+
+  if (!isReviewPending && !hasEvaluation) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-green-700 hover:bg-green-100 hover:text-green-800 dark:text-green-400 dark:hover:bg-green-900/30"
+        onClick={onShortlist}
+        disabled={isActioning || candidate.status === "shortlisted"}
+        title={
+          isReviewPending
+            ? "Approve & send interview invite"
+            : "Shortlist"
+        }
+      >
+        <ThumbsUp className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-red-700 hover:bg-red-100 hover:text-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+        onClick={onReject}
+        disabled={isActioning || candidate.status === "rejected"}
+        title={
+          isReviewPending
+            ? "Reject at pre-screen (no interview will be sent)"
+            : "Reject"
+        }
+      >
+        <ThumbsDown className="h-3.5 w-3.5" />
+      </Button>
+    </div>
   );
 }
 

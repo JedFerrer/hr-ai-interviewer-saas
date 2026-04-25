@@ -39,6 +39,13 @@ async def create_job(db: AsyncSession, user: User, data: JobCreateRequest) -> Jo
         auto_send_status_emails=(
             data.auto_send_status_emails if data.auto_send_status_emails is not None else True
         ),
+        screening_mode=data.screening_mode or "auto_all",
+        auto_invite_threshold=(
+            data.auto_invite_threshold if data.auto_invite_threshold is not None else 75
+        ),
+        review_threshold=(
+            data.review_threshold if data.review_threshold is not None else 55
+        ),
     )
     db.add(job)
     await db.commit()

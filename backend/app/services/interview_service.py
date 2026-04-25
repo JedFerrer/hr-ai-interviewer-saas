@@ -200,7 +200,14 @@ async def process_application_background(
     file_content: bytes,
     filename: str,
 ) -> None:
-    """Background task: parse resume, generate questions, create interview, send email.
+    """Background task: parse → score → decide → action.
+
+    The pipeline:
+      1. Parse resume into structured data (hard-fail on error → status=error).
+      2. Score the resume against the job description.
+      3. Apply the job's screening policy to pick a routing decision.
+      4. For `auto_invite`: build the interview record, mark `ready`, email link.
+         For `review`: stop here with status=`review_pending` (HR will approve later).
 
     Uses its own DB session (not the request session).
     """
@@ -239,6 +246,9 @@ async def process_application_background(
                     "Resume parse failed for candidate %s: %s", candidate_id, exc
                 )
                 candidate.status = "error"
+                candidate.pre_screen_decision = "error"
+                candidate.pre_screen_reason = f"Resume could not be parsed: {exc}"
+                candidate.pre_screened_at = datetime.now(timezone.utc)
                 await db.commit()
                 audit(
                     "candidate.resume_parse_failed",
@@ -250,63 +260,89 @@ async def process_application_background(
 
             candidate.resume_parsed_data = resume_data
 
-            # 2. Generate questions — use cached JD questions + personalized resume questions
-            num_questions = (job.interview_config or {}).get("num_questions", 8)
-            num_resume_qs = 2  # always 2 personalized resume verification questions
-            num_jd_qs = num_questions - num_resume_qs
+            # 2. Score resume vs JD. A scorer failure is non-fatal — we fall
+            #    through with score=None, and the decision engine will route
+            #    the candidate to HR review under any non-`auto_all` policy.
+            from app.services.resume_scoring_service import score_resume_match
 
-            # 2a. Get or generate JD-based questions (cached per job)
-            if job.cached_jd_questions and len(job.cached_jd_questions) >= num_jd_qs:
-                jd_questions = job.cached_jd_questions[:num_jd_qs]
-                logger.info("Reusing %d cached JD questions for job %s", num_jd_qs, job_id)
-            else:
-                jd_questions, pt, ct = await _generate_jd_questions(
-                    client, job.description, num_jd_qs
+            match_score: int | None = None
+            match_confidence: float | None = None
+            match_breakdown: dict | None = None
+            try:
+                match = await score_resume_match(
+                    resume_data=resume_data,
+                    job_title=job.title,
+                    job_description=job.description,
+                    required_skills=list(job.required_skills or []),
                 )
-                total_pt += pt
-                total_ct += ct
-                job.cached_jd_questions = jd_questions
-                logger.info("Generated and cached %d JD questions for job %s", num_jd_qs, job_id)
+                match_score = match["score"]
+                match_confidence = match["confidence"]
+                match_breakdown = {
+                    "matched_skills": match["matched_skills"],
+                    "missing_must_haves": match["missing_must_haves"],
+                    "rationale": match["rationale"],
+                }
+                total_pt += match["prompt_tokens"]
+                total_ct += match["completion_tokens"]
+            except Exception:
+                logger.exception(
+                    "Resume scoring failed for candidate %s; falling back to HR review",
+                    candidate_id,
+                )
 
-            # 2b. Generate personalized resume-specific questions (unique per candidate)
-            resume_questions, pt, ct = await _generate_resume_questions(
-                client, resume_data, job.title, num_resume_qs
+            candidate.resume_match_score = match_score
+            candidate.resume_match_confidence = match_confidence
+            candidate.resume_match_breakdown = match_breakdown
+
+            # 3. Apply screening policy.
+            from app.services.screening_service import (
+                ScreeningPolicy as _Policy,
+                decide as _decide,
             )
-            total_pt += pt
-            total_ct += ct
 
-            # Combine: resume verification first, then JD-based questions
-            questions = resume_questions + jd_questions
-
-            # 3. Create interview record (not_started — waiting for candidate)
-            interview = Interview(
-                candidate_id=candidate.id,
-                job_posting_id=job.id,
-                planned_questions=questions,
-                status="not_started",
-                total_prompt_tokens=total_pt,
-                total_completion_tokens=total_ct,
-                cost_usd=calculate_cost(LLM_MODEL, total_pt, total_ct),
+            outcome = _decide(
+                policy=_Policy(
+                    mode=job.screening_mode or "auto_all",
+                    auto_invite_threshold=job.auto_invite_threshold or 75,
+                    review_threshold=job.review_threshold or 55,
+                ),
+                score=match_score,
+                confidence=match_confidence,
             )
-            db.add(interview)
+            candidate.pre_screen_decision = outcome.decision
+            candidate.pre_screen_reason = outcome.reason
+            candidate.pre_screened_at = datetime.now(timezone.utc)
 
-            # 4. Mark candidate as ready (link expires in 7 days)
-            candidate.status = "ready"
-            candidate.interview_link_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-            await db.commit()
-
-            # 5. Send interview invite email
-            interview_link = f"{settings.app_url}/interview/session/{candidate.interview_token}"
-            await send_interview_invite(
-                candidate_email=candidate.email or "",
-                candidate_name=candidate.name or "Candidate",
-                job_title=job.title,
-                company_name=job.company.name if job.company else "Company",
-                interview_link=interview_link,
+            audit(
+                "candidate.pre_screened",
+                candidate_id=candidate_id,
+                job_id=job_id,
+                decision=outcome.decision,
+                score=match_score,
             )
-            logger.info(
-                "Background processing complete for candidate %s — interview link: %s",
-                candidate_id, interview_link,
+
+            if outcome.decision != "auto_invite":
+                # Park the candidate; HR will approve/reject from the dashboard.
+                candidate.status = "review_pending"
+                await db.commit()
+                logger.info(
+                    "Candidate %s routed to %s (score=%s, mode=%s)",
+                    candidate_id,
+                    outcome.decision,
+                    match_score,
+                    job.screening_mode,
+                )
+                return
+
+            # 4. Auto-invite path: generate questions, create interview, send email.
+            await _build_interview_and_invite(
+                db=db,
+                candidate=candidate,
+                job=job,
+                resume_data=resume_data,
+                client=client,
+                running_pt=total_pt,
+                running_ct=total_ct,
             )
 
         except Exception:
@@ -320,6 +356,81 @@ async def process_application_background(
                         await err_db.commit()
             except Exception:
                 logger.exception("Failed to revert candidate status")
+
+
+async def _build_interview_and_invite(
+    *,
+    db: AsyncSession,
+    candidate: Candidate,
+    job: JobPosting,
+    resume_data: dict,
+    client: AsyncOpenAI,
+    running_pt: int = 0,
+    running_ct: int = 0,
+) -> None:
+    """Generate questions, persist the interview, mark candidate ready, send invite.
+
+    Reused by the background pipeline (auto-invite branch) and by the HR
+    `approve-interview` endpoint, so the side effects only live in one place.
+    Caller owns the session; we commit before sending the email so DB state
+    is durable even if the mail provider hiccups.
+    """
+    total_pt, total_ct = running_pt, running_ct
+
+    num_questions = (job.interview_config or {}).get("num_questions", 8)
+    num_resume_qs = 2  # always 2 personalized resume verification questions
+    num_jd_qs = num_questions - num_resume_qs
+
+    # Cached JD-based questions (per job).
+    if job.cached_jd_questions and len(job.cached_jd_questions) >= num_jd_qs:
+        jd_questions = job.cached_jd_questions[:num_jd_qs]
+        logger.info("Reusing %d cached JD questions for job %s", num_jd_qs, job.id)
+    else:
+        jd_questions, pt, ct = await _generate_jd_questions(
+            client, job.description, num_jd_qs
+        )
+        total_pt += pt
+        total_ct += ct
+        job.cached_jd_questions = jd_questions
+        logger.info("Generated and cached %d JD questions for job %s", num_jd_qs, job.id)
+
+    # Personalized resume verification questions.
+    resume_questions, pt, ct = await _generate_resume_questions(
+        client, resume_data, job.title, num_resume_qs
+    )
+    total_pt += pt
+    total_ct += ct
+
+    questions = resume_questions + jd_questions
+
+    interview = Interview(
+        candidate_id=candidate.id,
+        job_posting_id=job.id,
+        planned_questions=questions,
+        status="not_started",
+        total_prompt_tokens=total_pt,
+        total_completion_tokens=total_ct,
+        cost_usd=calculate_cost(LLM_MODEL, total_pt, total_ct),
+    )
+    db.add(interview)
+
+    candidate.status = "ready"
+    candidate.interview_link_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    candidate.invite_sent_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    interview_link = f"{settings.app_url}/interview/session/{candidate.interview_token}"
+    await send_interview_invite(
+        candidate_email=candidate.email or "",
+        candidate_name=candidate.name or "Candidate",
+        job_title=job.title,
+        company_name=job.company.name if job.company else "Company",
+        interview_link=interview_link,
+    )
+    logger.info(
+        "Interview invite sent for candidate %s — link: %s",
+        candidate.id, interview_link,
+    )
 
 
 # ---------------------------------------------------------------------------
