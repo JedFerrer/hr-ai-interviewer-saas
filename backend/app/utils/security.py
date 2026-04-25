@@ -82,6 +82,28 @@ def decode_access_token(token: str) -> dict:
         )
 
 
+def token_expires_in_seconds(token: str) -> int:
+    """Return seconds remaining until the token's `exp` claim, clamped to >= 0.
+
+    Returns 0 for malformed/expired tokens rather than raising — callers use
+    this purely for surfacing TTL to clients, not for auth decisions.
+    """
+    s = get_settings()
+    try:
+        payload = jwt.decode(
+            token,
+            s.jwt_secret_key,
+            algorithms=[s.jwt_algorithm],
+        )
+    except jwt.PyJWTError:
+        return 0
+    exp = payload.get("exp")
+    if exp is None:
+        return 0
+    remaining = int(exp) - int(datetime.now(timezone.utc).timestamp())
+    return max(remaining, 0)
+
+
 # --- FastAPI dependency ---
 
 

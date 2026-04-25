@@ -138,3 +138,25 @@ html {
 html.dark {
   color-scheme: dark;
 }
+
+/*
+ * Sonner toast pointer-events fix for Radix modal dialogs.
+ *
+ * Radix Dialog (modal) sets `pointer-events: none` on <body> while open.
+ * Because `pointer-events` is inherited in CSS, every portalled sibling of
+ * the dialog — including Sonner's Toaster, which is mounted on <body> —
+ * stops receiving clicks. The "Undo" action button on a toast becomes
+ * visible but unclickable whenever a dialog (e.g. ComparisonDrawer) is open.
+ *
+ * Force `pointer-events: auto` back on the Toaster and every descendant so
+ * toast actions remain clickable regardless of dialog state. The dialog
+ * itself still prevents dismissal via `onInteractOutside` handlers.
+ *
+ * Ref: https://github.com/emilkowalski/sonner/issues/357
+ */
+[data-sonner-toaster],
+[data-sonner-toaster] *,
+[data-sonner-toast],
+[data-sonner-toast] * {
+  pointer-events: auto !important;
+}

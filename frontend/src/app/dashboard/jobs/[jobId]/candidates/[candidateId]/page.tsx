@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Loader2,
+  Mail,
   ThumbsUp,
   ThumbsDown,
   MessageSquare,
@@ -16,8 +17,13 @@ import {
   Download,
 } from "lucide-react";
 
-import { candidates as candidatesApi, API_URL } from "@/lib/api";
-import type { CandidateDetail } from "@/lib/types";
+import { ApiError, candidates as candidatesApi, API_URL } from "@/lib/api";
+import type {
+  CandidateDetail,
+  EmailTemplateKind,
+  NotificationConflictDetail,
+  PreScreenSummary,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,6 +32,33 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ShareReportDialog } from "@/components/share-report-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+// Pre-screen actions create irreversible side effects (interview invite
+// email on approve), so they always require an explicit confirmation.
+// Post-evaluation shortlist/reject status changes are reversible (Undo
+// toast) and never email the candidate by themselves — candidate
+// notifications are dispatched separately via the "Notify candidate"
+// dialog so HR can change their mind before anything reaches the inbox.
+type PreScreenConfirm = "approve_pre_screen" | "reject_pre_screen" | null;
 
 const TABS = [
   { id: "evaluation", label: "Evaluation", icon: BarChart3 },
@@ -46,6 +79,7 @@ export default function CandidateDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("evaluation");
   const [isActioning, setIsActioning] = useState(false);
+  const [confirm, setConfirm] = useState<PreScreenConfirm>(null);
 
   useEffect(() => {
     candidatesApi
@@ -55,28 +89,45 @@ export default function CandidateDetailPage() {
       .finally(() => setIsLoading(false));
   }, [candidateId]);
 
-  const handleAction = async (action: "shortlist" | "reject") => {
+  type Action =
+    | "approve_pre_screen"
+    | "reject_pre_screen"
+    | "shortlist"
+    | "reject";
+
+  const runAction = async (action: Action) => {
     setIsActioning(true);
     try {
-      const fn =
-        action === "shortlist"
-          ? candidatesApi.shortlist
-          : candidatesApi.reject;
-      const updated = await fn(candidateId);
+      let updated;
+      switch (action) {
+        case "approve_pre_screen":
+          updated = await candidatesApi.approveInterview(candidateId);
+          break;
+        case "reject_pre_screen":
+          updated = await candidatesApi.rejectPreScreen(candidateId);
+          break;
+        case "shortlist":
+          updated = await candidatesApi.shortlist(candidateId);
+          break;
+        case "reject":
+          updated = await candidatesApi.reject(candidateId);
+          break;
+      }
       setCandidate((prev) =>
-        prev ? { ...prev, status: updated.status } : prev,
+        prev ? { ...prev, status: updated.status as typeof prev.status } : prev,
       );
-      toast.success(
-        action === "shortlist"
-          ? "Candidate shortlisted"
-          : "Candidate rejected",
-      );
+      const messages: Record<Action, string> = {
+        approve_pre_screen: "Interview invite sent",
+        reject_pre_screen: "Candidate rejected at pre-screen",
+        shortlist: "Candidate shortlisted",
+        reject: "Candidate rejected",
+      };
+      toast.success(messages[action]);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Action failed",
-      );
+      toast.error(err instanceof Error ? err.message : "Action failed");
     } finally {
       setIsActioning(false);
+      setConfirm(null);
     }
   };
 
@@ -125,57 +176,101 @@ export default function CandidateDetailPage() {
             </div>
             <p className="text-sm text-muted-foreground">{candidate.email}</p>
           </div>
-          <div className="hidden sm:flex gap-2 shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleAction("reject")}
-              disabled={
-                isActioning || candidate.status === "rejected"
-              }
-            >
-              <ThumbsDown className="mr-2 h-3.5 w-3.5" />
-              Reject
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => handleAction("shortlist")}
-              disabled={
-                isActioning || candidate.status === "shortlisted"
-              }
-            >
-              <ThumbsUp className="mr-2 h-3.5 w-3.5" />
-              Shortlist
-            </Button>
-          </div>
+          <CandidateHeaderActions
+            candidate={candidate}
+            candidateId={candidateId}
+            isActioning={isActioning}
+            onPreScreenAction={(kind) => setConfirm(kind)}
+            onPostEvalAction={runAction}
+            layout="desktop"
+          />
         </div>
-        {/* Mobile action buttons */}
-        <div className="flex gap-2 sm:hidden">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => handleAction("reject")}
-            disabled={
-              isActioning || candidate.status === "rejected"
-            }
-          >
-            <ThumbsDown className="mr-2 h-3.5 w-3.5" />
-            Reject
-          </Button>
-          <Button
-            size="sm"
-            className="flex-1"
-            onClick={() => handleAction("shortlist")}
-            disabled={
-              isActioning || candidate.status === "shortlisted"
-            }
-          >
-            <ThumbsUp className="mr-2 h-3.5 w-3.5" />
-            Shortlist
-          </Button>
-        </div>
+        <CandidateHeaderActions
+          candidate={candidate}
+          candidateId={candidateId}
+          isActioning={isActioning}
+          onPreScreenAction={(kind) => setConfirm(kind)}
+          onPostEvalAction={runAction}
+          layout="mobile"
+        />
       </div>
+
+      {/* Confirmation dialog for pre-screen actions (irreversible: send email). */}
+      <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
+        <AlertDialogContent>
+          {confirm === "approve_pre_screen" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Send interview invite?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will create an interview for{" "}
+                  <span className="font-medium">{candidate.name}</span> and email
+                  the invite link to{" "}
+                  <span className="font-medium">{candidate.email}</span>{" "}
+                  immediately. The email cannot be recalled.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isActioning}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isActioning}
+                  onClick={() => {
+                    runAction("approve_pre_screen");
+                  }}
+                >
+                  {isActioning ? "Sending…" : "Approve & send invite"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+          {confirm === "reject_pre_screen" && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reject this candidate?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  <span className="font-medium">{candidate.name}</span> will be
+                  marked as rejected and will not move forward to an interview.
+                  No email is sent to the candidate during this resume pre-screen
+                  stage.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isActioning}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isActioning}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    runAction("reject_pre_screen");
+                  }}
+                >
+                  {isActioning ? "Rejecting…" : "Reject candidate"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Candidate notification panel: shows the most recent email we sent
+          and lets HR explicitly dispatch a shortlist / reject / correction
+          email. Decoupled from the status change itself so HR can revise
+          their decision before anything reaches the candidate. */}
+      <NotifyCandidatePanel
+        candidate={candidate}
+        onNotified={(updates) =>
+          setCandidate((prev) => (prev ? { ...prev, ...updates } : prev))
+        }
+      />
+
+      {/* Pre-screen summary (visible whenever pre-screen ran, regardless of
+          current status). Gives HR the score, confidence, matched/missing
+          skills, and the engine's reason for the routing decision. */}
+      {candidate.pre_screen && (
+        <PreScreenCard
+          summary={candidate.pre_screen}
+          candidateStatus={candidate.status}
+        />
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b">
@@ -209,6 +304,134 @@ export default function CandidateDetailPage() {
         <IntegrityTab candidate={candidate} />
       )}
       {activeTab === "resume" && <ResumeTab candidate={candidate} />}
+    </div>
+  );
+}
+
+/* ── Stage-aware action group ─────────────────────────────────
+ * Decides which buttons to show based on where the candidate is
+ * in the funnel:
+ *   • review_pending → Approve & Invite + Reject (pre-screen),
+ *     both gated by a confirmation dialog (irreversible: email).
+ *   • has evaluation → Share Report + Reject + Shortlist
+ *     (post-evaluation hiring decision; status itself is reversible
+ *     via the list-page Undo toast, side-effect emails are not).
+ *   • processing / ready / in_progress / error and no eval → no
+ *     hiring buttons (HR has nothing meaningful to act on yet).
+ */
+function CandidateHeaderActions({
+  candidate,
+  candidateId,
+  isActioning,
+  onPreScreenAction,
+  onPostEvalAction,
+  layout,
+}: {
+  candidate: CandidateDetail;
+  candidateId: string;
+  isActioning: boolean;
+  onPreScreenAction: (kind: "approve_pre_screen" | "reject_pre_screen") => void;
+  onPostEvalAction: (action: "shortlist" | "reject") => void;
+  layout: "desktop" | "mobile";
+}) {
+  const isReviewPending = candidate.status === "review_pending";
+  const hasEvaluation = candidate.evaluation !== null;
+
+  if (!isReviewPending && !hasEvaluation) {
+    // Nothing actionable yet — interview pending or processing failed.
+    return null;
+  }
+
+  const wrapperClass =
+    layout === "desktop"
+      ? "hidden sm:flex gap-2 shrink-0"
+      : "flex flex-col gap-2 sm:hidden";
+  const buttonClass = layout === "desktop" ? "" : "flex-1";
+
+  if (isReviewPending) {
+    return (
+      <div className={wrapperClass}>
+        <div className={layout === "desktop" ? "flex gap-2" : "flex gap-2"}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={buttonClass}
+            onClick={() => onPreScreenAction("reject_pre_screen")}
+            disabled={isActioning}
+          >
+            <ThumbsDown className="mr-2 h-3.5 w-3.5" />
+            Reject (pre-screen)
+          </Button>
+          <Button
+            size="sm"
+            className={buttonClass}
+            onClick={() => onPreScreenAction("approve_pre_screen")}
+            disabled={isActioning}
+          >
+            <ThumbsUp className="mr-2 h-3.5 w-3.5" />
+            Approve & invite
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // hasEvaluation === true
+  return (
+    <div className={wrapperClass}>
+      {layout === "mobile" ? (
+        <>
+          <ShareReportDialog
+            candidateId={candidateId}
+            candidateName={candidate.name}
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className={buttonClass}
+              onClick={() => onPostEvalAction("reject")}
+              disabled={isActioning || candidate.status === "rejected"}
+            >
+              <ThumbsDown className="mr-2 h-3.5 w-3.5" />
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              className={buttonClass}
+              onClick={() => onPostEvalAction("shortlist")}
+              disabled={isActioning || candidate.status === "shortlisted"}
+            >
+              <ThumbsUp className="mr-2 h-3.5 w-3.5" />
+              Shortlist
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <ShareReportDialog
+            candidateId={candidateId}
+            candidateName={candidate.name}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onPostEvalAction("reject")}
+            disabled={isActioning || candidate.status === "rejected"}
+          >
+            <ThumbsDown className="mr-2 h-3.5 w-3.5" />
+            Reject
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => onPostEvalAction("shortlist")}
+            disabled={isActioning || candidate.status === "shortlisted"}
+          >
+            <ThumbsUp className="mr-2 h-3.5 w-3.5" />
+            Shortlist
+          </Button>
+        </>
+      )}
     </div>
   );
 }
@@ -591,5 +814,369 @@ function ResumeTab({ candidate }: { candidate: CandidateDetail }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/* ── Pre-Screen Card ──────────────────────────────────────── */
+
+const PRE_SCREEN_DECISION_STYLES: Record<string, string> = {
+  auto_invite:
+    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+  review:
+    "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+  reject: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  error: "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300",
+};
+
+const PRE_SCREEN_DECISION_LABELS: Record<string, string> = {
+  auto_invite: "Auto-invited",
+  review: "Awaiting review",
+  reject: "Rejected",
+  error: "Error",
+};
+
+function PreScreenCard({
+  summary,
+  candidateStatus,
+}: {
+  summary: PreScreenSummary;
+  candidateStatus: CandidateDetail["status"];
+}) {
+  const score = summary.score;
+  const confidence = summary.confidence;
+  const matched = summary.breakdown?.matched_skills ?? [];
+  const missing = summary.breakdown?.missing_must_haves ?? [];
+  const rationale = summary.breakdown?.rationale;
+  const showDecisionBadge =
+    summary.decision !== null &&
+    !(summary.decision === "review" && candidateStatus !== "review_pending");
+  const scoreColorClass =
+    score == null
+      ? "text-muted-foreground"
+      : score >= 75
+        ? "text-green-600 dark:text-green-400"
+        : score >= 55
+          ? "text-amber-600 dark:text-amber-400"
+          : "text-red-600 dark:text-red-400";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="text-base">Resume pre-screen</CardTitle>
+          {summary.reason && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {summary.reason}
+            </p>
+          )}
+        </div>
+        {showDecisionBadge && summary.decision && (
+          <Badge
+            variant="secondary"
+            className={PRE_SCREEN_DECISION_STYLES[summary.decision] ?? ""}
+          >
+            {PRE_SCREEN_DECISION_LABELS[summary.decision] ?? summary.decision}
+          </Badge>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-6">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Match score
+            </p>
+            <p className={`text-3xl font-bold ${scoreColorClass}`}>
+              {score != null ? `${score}/100` : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Confidence
+            </p>
+            <p className="text-3xl font-bold">
+              {confidence != null ? confidence.toFixed(2) : "—"}
+            </p>
+          </div>
+        </div>
+
+        {matched.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Matched skills
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {matched.map((skill) => (
+                <Badge key={skill} variant="secondary">
+                  {skill}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {missing.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Missing must-haves
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {missing.map((skill) => (
+                <Badge
+                  key={skill}
+                  variant="secondary"
+                  className="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"
+                >
+                  {skill}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {rationale && (
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Rationale
+            </p>
+            <p className="text-sm leading-relaxed">{rationale}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ── Notify candidate panel ──────────────────────────────────
+ * Shows the most recent email we sent to the candidate (kind +
+ * timestamp) and exposes a dialog for HR to dispatch a new
+ * notification. The backend enforces a conflict guard: trying to
+ * send a shortlist email after a previous reject (or vice versa)
+ * returns 409, which we surface as a confirmation modal asking
+ * HR to either send a status_correction first or force the new
+ * email through.
+ */
+
+const NOTIFICATION_KIND_LABEL: Record<EmailTemplateKind, string> = {
+  shortlist: "Shortlist",
+  reject: "Rejection",
+  status_correction: "Correction / apology",
+};
+
+function NotifyCandidatePanel({
+  candidate,
+  onNotified,
+}: {
+  candidate: CandidateDetail;
+  onNotified: (updates: Partial<CandidateDetail>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<EmailTemplateKind>(() =>
+    candidate.status === "rejected" ? "reject" : "shortlist",
+  );
+  const [conflict, setConflict] = useState<NotificationConflictDetail | null>(
+    null,
+  );
+  const [isSending, setIsSending] = useState(false);
+
+  // Candidate-facing notifications are available only once the
+  // candidate has completed the screening interview (evaluation exists).
+  // Also don't render when we have no email address.
+  if (!candidate.email || !candidate.evaluation) return null;
+
+  const lastKind = candidate.last_notification_kind ?? null;
+  const lastSentAt = candidate.last_notification_sent_at ?? null;
+
+  const send = async (force: boolean) => {
+    setIsSending(true);
+    try {
+      const result = await candidatesApi.sendNotification(candidate.id, {
+        kind,
+        force,
+      });
+      onNotified({
+        last_notification_kind: result.last_notification_kind,
+        last_notification_sent_at: result.last_notification_sent_at,
+      });
+      toast.success(
+        result.sent
+          ? `${NOTIFICATION_KIND_LABEL[kind]} email sent`
+          : "Email skipped (recently sent)",
+      );
+      setConflict(null);
+      setOpen(false);
+    } catch (err) {
+      // The backend signals a contradictory-email guard via 409 +
+      // `code: "notification_conflict"`. Surface a confirmation step
+      // rather than a raw error toast.
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.detail &&
+        typeof err.detail === "object" &&
+        (err.detail as { code?: string }).code === "notification_conflict"
+      ) {
+        setConflict(err.detail as NotificationConflictDetail);
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : "Failed to send email");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <div className="space-y-1">
+          <CardTitle className="text-base">Candidate notifications</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            {lastKind && lastSentAt ? (
+              <>
+                Last notified:{" "}
+                <span className="font-medium">
+                  {NOTIFICATION_KIND_LABEL[lastKind]}
+                </span>{" "}
+                · {new Date(lastSentAt).toLocaleString()}
+              </>
+            ) : (
+              <>No emails sent to this candidate yet.</>
+            )}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setKind(candidate.status === "rejected" ? "reject" : "shortlist");
+            setOpen(true);
+          }}
+        >
+          <Mail className="mr-2 h-3.5 w-3.5" />
+          Notify candidate
+        </Button>
+      </CardHeader>
+
+      <Dialog open={open} onOpenChange={(o) => !o && !isSending && setOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Email {candidate.name}</DialogTitle>
+            <DialogDescription>
+              Pick which template to send to{" "}
+              <span className="font-medium">{candidate.email}</span>. The
+              candidate&apos;s internal status is unchanged by this action.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 py-2">
+            {(
+              ["shortlist", "reject", "status_correction"] as EmailTemplateKind[]
+            ).map((k) => (
+              <label
+                key={k}
+                className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors ${
+                  kind === k
+                    ? "border-primary bg-primary/5"
+                    : "hover:bg-muted/50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="notify-kind"
+                  className="mt-0.5"
+                  checked={kind === k}
+                  onChange={() => setKind(k)}
+                  disabled={isSending}
+                />
+                <span className="flex-1">
+                  <span className="block font-medium">
+                    {NOTIFICATION_KIND_LABEL[k]}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {k === "shortlist" &&
+                      "Tell the candidate they're moving to the next round."}
+                    {k === "reject" &&
+                      "Inform the candidate that their application is unsuccessful."}
+                    {k === "status_correction" &&
+                      "Apologise for a prior message sent in error and let the candidate know a follow-up will arrive."}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={isSending}
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={isSending} onClick={() => send(false)}>
+              {isSending ? "Sending…" : "Send email"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Conflict confirmation: candidate already received an opposing email. */}
+      <AlertDialog
+        open={conflict !== null}
+        onOpenChange={(o) => !o && !isSending && setConflict(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send a contradictory email?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {conflict && (
+                <>
+                  This candidate was previously emailed a{" "}
+                  <span className="font-medium">
+                    {NOTIFICATION_KIND_LABEL[conflict.previous_kind]}
+                  </span>{" "}
+                  notification
+                  {conflict.last_sent_at && (
+                    <> on {new Date(conflict.last_sent_at).toLocaleString()}</>
+                  )}
+                  . Sending a{" "}
+                  <span className="font-medium">
+                    {NOTIFICATION_KIND_LABEL[conflict.requested_kind]}
+                  </span>{" "}
+                  email now will likely confuse them. Consider sending a
+                  correction email first to apologise and explain a follow-up
+                  is coming.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <AlertDialogCancel disabled={isSending}>Cancel</AlertDialogCancel>
+            <Button
+              variant="outline"
+              disabled={isSending}
+              onClick={async () => {
+                // Send a correction email and leave the dialog state so HR
+                // can immediately follow up with the original requested email.
+                const previousKind = kind;
+                setKind("status_correction");
+                await send(false);
+                setKind(previousKind);
+              }}
+            >
+              Send correction first
+            </Button>
+            <AlertDialogAction
+              disabled={isSending}
+              onClick={(e) => {
+                e.preventDefault();
+                send(true);
+              }}
+            >
+              {isSending ? "Sending…" : "Send anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }

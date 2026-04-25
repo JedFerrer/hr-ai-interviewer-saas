@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Loader2, Save, X } from "lucide-react";
 
 import { jobs as jobsApi } from "@/lib/api";
-import type { JobPosting } from "@/lib/types";
+import type { JobPosting, ScreeningMode } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,6 +68,18 @@ export default function EditJobPage() {
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
 
+  // Status-email toggle (also managed outside RHF since it's a controlled
+  // boolean and not a registered field).
+  const [autoSendEmails, setAutoSendEmails] = useState(false);
+
+  // Screening policy state. Defaults match the backend's hybrid defaults
+  // (75 auto-invite / 55 review) so existing jobs upgrading from `auto_all`
+  // get sensible thresholds the moment they switch modes.
+  const [screeningMode, setScreeningMode] = useState<ScreeningMode>("hybrid_threshold");
+  const [autoInviteThreshold, setAutoInviteThreshold] = useState<number>(75);
+  const [reviewThreshold, setReviewThreshold] = useState<number>(55);
+  const [screeningError, setScreeningError] = useState<string | null>(null);
+
   const {
     register,
     handleSubmit,
@@ -87,6 +99,10 @@ export default function EditJobPage() {
       .then(({ job }) => {
         setJob(job);
         setSkills(job.required_skills ?? []);
+        setAutoSendEmails(job.auto_send_status_emails ?? false);
+        setScreeningMode(job.screening_mode ?? "hybrid_threshold");
+        setAutoInviteThreshold(job.auto_invite_threshold ?? 75);
+        setReviewThreshold(job.review_threshold ?? 55);
         const isCustom = job.department
           ? !DEPARTMENTS.includes(job.department)
           : false;
@@ -124,6 +140,29 @@ export default function EditJobPage() {
   };
 
   const onSubmit = async (data: EditFormData) => {
+    // Cross-field validation that mirrors the backend Pydantic rules.
+    // Doing it client-side keeps a confused HR user from getting a 422.
+    if (screeningMode === "hybrid_threshold") {
+      if (
+        !Number.isFinite(autoInviteThreshold) ||
+        !Number.isFinite(reviewThreshold) ||
+        autoInviteThreshold < 0 ||
+        autoInviteThreshold > 100 ||
+        reviewThreshold < 0 ||
+        reviewThreshold > 100
+      ) {
+        setScreeningError("Thresholds must be between 0 and 100.");
+        return;
+      }
+      if (reviewThreshold > autoInviteThreshold) {
+        setScreeningError(
+          "Review threshold must be less than or equal to the auto-invite threshold.",
+        );
+        return;
+      }
+    }
+    setScreeningError(null);
+
     setIsSaving(true);
     try {
       const payload: Record<string, unknown> = {
@@ -133,6 +172,10 @@ export default function EditJobPage() {
         location: data.location || null,
         employment_type: data.employment_type,
         required_skills: skills,
+        auto_send_status_emails: autoSendEmails,
+        screening_mode: screeningMode,
+        auto_invite_threshold: autoInviteThreshold,
+        review_threshold: reviewThreshold,
       };
 
       await jobsApi.update(jobId, payload as Partial<JobPosting>);
@@ -339,6 +382,129 @@ export default function EditJobPage() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Screening policy */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Screening policy</CardTitle>
+            <CardDescription>
+              Decide how applicants are routed after their resume is parsed and
+              scored against this job.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="screening_mode">Mode</Label>
+              <select
+                id="screening_mode"
+                className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&>option]:bg-background [&>option]:text-foreground"
+                value={screeningMode}
+                onChange={(e) =>
+                  setScreeningMode(e.target.value as ScreeningMode)
+                }
+              >
+                <option value="auto_all">
+                  Auto-invite everyone (legacy behaviour)
+                </option>
+                <option value="hybrid_threshold">
+                  Hybrid — score and route by threshold
+                </option>
+                <option value="manual_all">
+                  Manual review for every applicant
+                </option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Hybrid is the recommended default: strong matches get an
+                interview link automatically, weaker or borderline matches wait
+                for your approval.
+              </p>
+            </div>
+
+            {screeningMode === "hybrid_threshold" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="auto_invite_threshold">
+                    Auto-invite at score ≥
+                  </Label>
+                  <Input
+                    id="auto_invite_threshold"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={autoInviteThreshold}
+                    onChange={(e) =>
+                      setAutoInviteThreshold(Number(e.target.value))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Candidates at or above this score are emailed an interview
+                    link automatically.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="review_threshold">
+                    Send to review below
+                  </Label>
+                  <Input
+                    id="review_threshold"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={reviewThreshold}
+                    onChange={(e) =>
+                      setReviewThreshold(Number(e.target.value))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Anything below the auto-invite score lands in the HR review
+                    queue — no auto-rejection.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {screeningError && (
+              <p className="text-sm text-destructive">{screeningError}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Notifications */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Candidate notifications</CardTitle>
+            <CardDescription>
+              Control which automated emails candidates receive about their
+              status on this job.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={autoSendEmails}
+                onChange={(e) => setAutoSendEmails(e.target.checked)}
+                className="mt-0.5 h-4 w-4 cursor-pointer rounded border-input accent-primary"
+              />
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">
+                  Send status emails automatically
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  When a candidate is shortlisted or rejected, send them the
+                  corresponding email using your{" "}
+                  <Link
+                    href="/dashboard/settings/email-templates"
+                    className="underline hover:text-foreground"
+                  >
+                    company templates
+                  </Link>
+                  .
+                </p>
+              </div>
+            </label>
           </CardContent>
         </Card>
 

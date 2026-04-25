@@ -33,7 +33,20 @@ export default function RootLayout({
         >
           <AuthProvider>
             {children}
-            <Toaster richColors position="top-right" />
+            {/*
+             * `pointer-events-auto` on the Toaster (and its inner toasts) is
+             * required so action buttons (e.g. "Undo") remain clickable while
+             * a Radix Dialog is open. Radix Dialog sets `pointer-events: none`
+             * on <body> which, because `pointer-events` inherits, disables
+             * clicks on every portalled sibling including Sonner's toasts.
+             * See https://github.com/emilkowalski/sonner/issues/357
+             */}
+            <Toaster
+              richColors
+              position="top-right"
+              className="pointer-events-auto"
+              toastOptions={{ classNames: { toast: "pointer-events-auto" } }}
+            />
           </AuthProvider>
         </ThemeProvider>
       </body>

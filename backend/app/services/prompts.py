@@ -171,3 +171,30 @@ Return valid JSON only — no markdown, no explanation.
 Example structure:
 {{"skill_match": 7.5, "communication": 8.0, "problem_solving": 6.5, "cultural_fit": 7.0, "overall_score": 7.2, "summary": "...", "strengths": [...], "gaps": [...], "red_flags": [...], "recommendation": "yes"}}
 """
+
+RESUME_SCORING_PROMPT = """You are an expert technical recruiter. Score how well the candidate's resume matches the job description.
+
+Job title: {job_title}
+Required skills: {required_skills}
+Job description:
+{job_description}
+
+Candidate resume (parsed):
+{resume_data}
+
+SCORING INSTRUCTIONS:
+- score: integer 0-100. 100 = perfect fit, 0 = completely unrelated background.
+- confidence: float 0.0-1.0 — how confident you are in the score given the evidence.
+  Lower confidence when the resume is sparse, generic, or the JD is ambiguous.
+- matched_skills: list of skills from the resume that map to the JD requirements.
+- missing_must_haves: list of explicit requirements from the JD that are absent from the resume.
+- rationale: 1-2 sentence explanation of the score.
+
+Be conservative: do not invent matches. Prefer evidence from listed experience and skills.
+Penalize obvious mismatches (e.g. a junior PM resume for a senior backend role) heavily.
+
+Return valid JSON only — no markdown, no explanation.
+Schema:
+{{"score": 0, "confidence": 0.0, "matched_skills": [], "missing_must_haves": [], "rationale": ""}}
+"""
+

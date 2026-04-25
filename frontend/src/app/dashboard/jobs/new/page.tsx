@@ -86,6 +86,9 @@ const step3Schema = z.object({
   required_skills: z.array(z.string()).min(1, "Add at least one skill"),
   interview_style: z.string().min(1, "Select an interview style"),
   num_questions: z.number().min(3).max(15),
+  screening_mode: z.enum(["auto_all", "hybrid_threshold", "manual_all"]),
+  auto_invite_threshold: z.number().min(0).max(100),
+  review_threshold: z.number().min(0).max(100),
 });
 
 type Step1Data = z.infer<typeof step1Schema>;
@@ -134,6 +137,9 @@ export default function CreateJobPage() {
           style: step3Data.interview_style as "quick" | "standard" | "deep",
           num_questions: step3Data.num_questions,
         },
+        screening_mode: step3Data.screening_mode,
+        auto_invite_threshold: step3Data.auto_invite_threshold,
+        review_threshold: step3Data.review_threshold,
       };
 
       const { interview_link } = await jobsApi.create(payload);
@@ -515,6 +521,15 @@ function Step3Form({
     defaultValues?.required_skills ?? [],
   );
   const [style, setStyle] = useState(defaultValues?.interview_style ?? "standard");
+  const [screeningMode, setScreeningMode] = useState<
+    "auto_all" | "hybrid_threshold" | "manual_all"
+  >(defaultValues?.screening_mode ?? "hybrid_threshold");
+  const [autoInviteThreshold, setAutoInviteThreshold] = useState<number>(
+    defaultValues?.auto_invite_threshold ?? 75,
+  );
+  const [reviewThreshold, setReviewThreshold] = useState<number>(
+    defaultValues?.review_threshold ?? 55,
+  );
 
   const numQuestions =
     style === "quick" ? 5 : style === "standard" ? 8 : 12;
@@ -543,10 +558,28 @@ function Step3Form({
       toast.error("Add at least one required skill");
       return;
     }
+    if (screeningMode === "hybrid_threshold") {
+      if (
+        autoInviteThreshold < 0 || autoInviteThreshold > 100 ||
+        reviewThreshold < 0 || reviewThreshold > 100
+      ) {
+        toast.error("Screening thresholds must be between 0 and 100.");
+        return;
+      }
+      if (reviewThreshold > autoInviteThreshold) {
+        toast.error(
+          "Review threshold must be less than or equal to the auto-invite threshold.",
+        );
+        return;
+      }
+    }
     onNext({
       required_skills: skills,
       interview_style: style,
       num_questions: numQuestions,
+      screening_mode: screeningMode,
+      auto_invite_threshold: autoInviteThreshold,
+      review_threshold: reviewThreshold,
     });
   };
 
@@ -613,6 +646,64 @@ function Step3Form({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Screening policy */}
+        <div className="space-y-3 border-t pt-6">
+          <div className="space-y-1">
+            <Label>Screening policy *</Label>
+            <p className="text-xs text-muted-foreground">
+              Decide how applicants are routed after their resume is parsed and
+              scored against this job. Hybrid is recommended.
+            </p>
+          </div>
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&>option]:bg-background [&>option]:text-foreground"
+            value={screeningMode}
+            onChange={(e) =>
+              setScreeningMode(
+                e.target.value as "auto_all" | "hybrid_threshold" | "manual_all",
+              )
+            }
+          >
+            <option value="auto_all">Auto-invite everyone</option>
+            <option value="hybrid_threshold">
+              Hybrid — score and route by threshold
+            </option>
+            <option value="manual_all">Manual review for every applicant</option>
+          </select>
+          {screeningMode === "hybrid_threshold" && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="new_auto_invite_threshold">
+                  Auto-invite at score ≥
+                </Label>
+                <Input
+                  id="new_auto_invite_threshold"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={autoInviteThreshold}
+                  onChange={(e) =>
+                    setAutoInviteThreshold(Number(e.target.value))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new_review_threshold">
+                  Send to review below
+                </Label>
+                <Input
+                  id="new_review_threshold"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={reviewThreshold}
+                  onChange={(e) => setReviewThreshold(Number(e.target.value))}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
       <div className="flex justify-between p-6 pt-0">
@@ -709,6 +800,16 @@ function ReviewStep({
               {step3.interview_style}
             </span>{" "}
             · {step3.num_questions} questions
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Screening:{" "}
+            <span className="font-medium text-foreground">
+              {step3.screening_mode === "auto_all"
+                ? "Auto-invite everyone"
+                : step3.screening_mode === "manual_all"
+                  ? "Manual review for every applicant"
+                  : `Hybrid (auto-invite ≥ ${step3.auto_invite_threshold}, review < ${step3.auto_invite_threshold})`}
+            </span>
           </p>
         </div>
       </CardContent>

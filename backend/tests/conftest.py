@@ -74,6 +74,19 @@ def override_deps():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def disable_rate_limiter():
+    """Tests trigger many signups/logins; do not let SlowAPI's per-IP cap interfere."""
+    from app.middleware.rate_limiter import limiter
+
+    previous = limiter.enabled
+    limiter.enabled = False
+    try:
+        yield
+    finally:
+        limiter.enabled = previous
+
+
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     from app.main import app
@@ -86,7 +99,11 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 
 @pytest_asyncio.fixture
 async def auth_headers(client: AsyncClient) -> dict[str, str]:
-    """Create a test user and return auth headers."""
+    """Create a test user and return auth headers.
+
+    Includes the `X-Requested-With` header so requests pass the CSRF guard
+    when the signup-issued cookie is also present on the client.
+    """
     resp = await client.post("/auth/signup", json={
         "email": "test@example.com",
         "password": "testpassword123",
@@ -94,4 +111,7 @@ async def auth_headers(client: AsyncClient) -> dict[str, str]:
         "company_name": "Test Corp",
     })
     token = resp.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Requested-With": "XMLHttpRequest",
+    }

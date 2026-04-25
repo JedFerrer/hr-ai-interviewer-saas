@@ -92,3 +92,35 @@ async def send_completion_notification(
     except Exception:
         logger.exception("Failed to send completion notification to %s", hr_email)
         return False
+
+
+async def send_status_email(
+    candidate_email: str,
+    subject: str,
+    body_html: str,
+) -> bool:
+    """Send a pre-rendered candidate-status email (shortlist / reject).
+
+    Subject and body are produced by `email_template_service.render_template`,
+    which already HTML-escapes user-controlled values. We pass them through
+    verbatim here.
+    """
+    if not settings.resend_api_key:
+        logger.warning("RESEND_API_KEY not set, skipping status email to %s", candidate_email)
+        return False
+
+    import resend
+
+    resend.api_key = settings.resend_api_key
+
+    try:
+        resend.Emails.send({
+            "from": settings.from_email,
+            "to": [candidate_email],
+            "subject": subject,
+            "html": body_html,
+        })
+        return True
+    except Exception:
+        logger.exception("Failed to send status email to %s", candidate_email)
+        return False

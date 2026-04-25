@@ -2,11 +2,13 @@
 
 import {
   Building2,
+  ChevronRight,
   Mail,
   Shield,
   User,
 } from "lucide-react";
 
+import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
   Card,
@@ -96,6 +98,27 @@ export default function SettingsPage() {
         </Card>
 
         <Separator />
+
+        {/* Email templates */}
+        <Link
+          href="/dashboard/settings/email-templates"
+          className="block group"
+        >
+          <Card className="transition-colors group-hover:border-primary/40">
+            <CardContent className="flex items-center justify-between py-4">
+              <div className="flex items-center gap-3">
+                <Mail className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">Status email templates</p>
+                  <p className="text-xs text-muted-foreground">
+                    Customise shortlist and rejection emails sent to candidates.
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        </Link>
 
         <p className="text-sm text-muted-foreground">
           More settings (password change, notifications, integrations) coming
