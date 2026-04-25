@@ -156,13 +156,6 @@ export function ShareReportDialog({ candidateId, candidateName }: Props) {
               Revoke
             </Button>
           )}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => handleOpenChange(false)}
-          >
-            Close
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

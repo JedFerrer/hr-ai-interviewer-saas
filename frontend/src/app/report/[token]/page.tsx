@@ -78,6 +78,34 @@ export default function PublicReportPage({ params }: PageProps) {
   }
 
   const ev = report.evaluation;
+
+  // Interview not yet completed — show a holding page instead of crashing.
+  if (!ev) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6 p-4 py-8 sm:p-8">
+        <header className="space-y-2 border-b pb-6">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            Evaluation report
+          </p>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            {report.candidate_name}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {report.job_title} · {report.company_name}
+          </p>
+        </header>
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <Loader2 className="h-8 w-8 text-muted-foreground" />
+          <p className="font-medium">Interview not yet completed</p>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            The evaluation report will be available once the candidate finishes
+            their interview.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const scoreCategories: Array<[string, number | undefined]> = [
     ["Skill Match", ev.scores?.skill_match],
     ["Communication", ev.scores?.communication],

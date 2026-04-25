@@ -10,7 +10,6 @@ import {
   Upload,
   CheckCircle2,
   AlertTriangle,
-  Mail,
 } from "lucide-react";
 
 import { interview as interviewApi } from "@/lib/api";
@@ -124,21 +123,6 @@ export default function ApplicationPage() {
                 at <strong>{jobInfo.company_name}</strong>.
               </p>
             </div>
-
-            <div className="flex items-center gap-3 rounded-lg border bg-muted/50 p-4 w-full max-w-md">
-              <Mail className="h-5 w-5 text-primary shrink-0" />
-              <div className="text-left">
-                <p className="text-sm font-medium">Check your email</p>
-                <p className="text-xs text-muted-foreground">
-                  You&apos;ll receive an interview link at{" "}
-                  <strong>{candidateEmail}</strong> within a couple of hours.
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              You can close this page now.
-            </p>
           </CardContent>
         </Card>
       </div>

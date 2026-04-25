@@ -70,14 +70,7 @@ export function ComparisonDrawer({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        size="full"
-        className="sm:max-w-[1100px]"
-        // Prevent Radix from closing the dialog when the Sonner toast's
-        // "Undo" button is clicked — Sonner renders in a portal outside the
-        // Dialog DOM subtree, so Radix treats it as an outside click.
-        onInteractOutside={(e) => e.preventDefault()}
-      >
+      <DialogContent size="full" className="sm:max-w-[1100px]">
         <DialogHeader>
           <DialogTitle>Compare candidates</DialogTitle>
           <DialogDescription>
