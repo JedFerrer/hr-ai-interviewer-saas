@@ -1,14 +1,23 @@
 """Centralized LLM client with multi-provider fallback.
 
 Supports OpenAI, DeepSeek, and Anthropic via the OpenAI-compatible SDK.
-On timeout/connection failure, automatically falls back to the next provider.
+On retryable failures (timeouts, connection errors, rate limits, 5xx) we
+automatically fall back to the next provider in the chain. Programmer
+errors (4xx other than 429) propagate immediately so we don't mask bugs.
 """
 
 from __future__ import annotations
 
 import logging
 
-from openai import APITimeoutError, APIConnectionError, AsyncOpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    BadRequestError,
+    RateLimitError,
+)
 
 from app.config import get_settings
 
@@ -42,6 +51,12 @@ async def llm_chat_completion(
 
     Returns (response, model_name) where model_name is the model actually used.
     This allows callers to track costs accurately when a fallback fires.
+
+    Fallback policy:
+      * APITimeoutError / APIConnectionError / RateLimitError → try next provider
+      * APIStatusError with status >= 500 → try next provider (provider-side)
+      * BadRequestError / other 4xx → raise (our request is malformed; don't
+        burn fallback budget on a request that will fail everywhere)
     """
     chain = _settings.get_fallback_chain()
 
@@ -65,7 +80,11 @@ async def llm_chat_completion(
                 )
             return response, provider_model
 
-        except (APITimeoutError, APIConnectionError) as exc:
+        except BadRequestError:
+            # 400 — our payload is wrong. Don't try other providers; surface
+            # the error so the caller can fix the prompt / params.
+            raise
+        except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
             last_exc = exc
             remaining = len(chain) - i - 1
             logger.warning(
@@ -73,6 +92,19 @@ async def llm_chat_completion(
                 provider_model, exc, remaining,
             )
             continue
+        except APIStatusError as exc:
+            # Only fall back on server-side failures. 4xx (other than 429,
+            # already handled above) means the request is wrong — fail fast.
+            status_code = getattr(exc, "status_code", None) or 0
+            if status_code >= 500:
+                last_exc = exc
+                remaining = len(chain) - i - 1
+                logger.warning(
+                    "LLM provider 5xx (model=%s, status=%s): %s. %d fallback(s) remaining.",
+                    provider_model, status_code, exc, remaining,
+                )
+                continue
+            raise
 
     # All providers exhausted
     raise last_exc  # type: ignore[misc]
