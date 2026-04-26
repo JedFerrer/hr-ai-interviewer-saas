@@ -93,6 +93,7 @@ async def parse_resume_with_llm_async(
     response, _model = await llm_chat_completion(
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
+        json_mode=True,
     )
     raw = response.choices[0].message.content or ""
     cleaned = strip_code_fences(raw)

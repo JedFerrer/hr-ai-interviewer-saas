@@ -52,19 +52,22 @@ class Settings(BaseSettings):
         return self._provider_config(self.llm_provider).get("base_url")
 
     def _provider_config(self, provider: str) -> dict:
-        """Return api_key, model, base_url for a given provider name."""
+        """Return name, api_key, model, base_url for a given provider."""
         providers = {
             "deepseek": {
+                "name": "deepseek",
                 "api_key": self.deepseek_api_key,
                 "model": "deepseek-chat",
                 "base_url": "https://api.deepseek.com",
             },
             "openai": {
+                "name": "openai",
                 "api_key": self.openai_api_key,
                 "model": "gpt-4.1-mini",
                 "base_url": None,
             },
             "anthropic": {
+                "name": "anthropic",
                 "api_key": self.anthropic_api_key,
                 "model": "claude-sonnet-4-20250514",
                 "base_url": "https://api.anthropic.com/v1/",

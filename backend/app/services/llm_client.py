@@ -40,17 +40,31 @@ def _build_client(provider_cfg: dict) -> AsyncOpenAI:
     )
 
 
+# Providers known to honour OpenAI-style `response_format={"type":"json_object"}`.
+# Anthropic via its OpenAI-compat endpoint historically rejects that field, so
+# we omit it there and rely on the prompt + `strip_code_fences` safety net.
+_JSON_MODE_PROVIDERS = frozenset({"openai", "deepseek"})
+
+
 async def llm_chat_completion(
     *,
     messages: list[dict[str, str]],
     model: str | None = None,
     temperature: float = 0.4,
+    json_mode: bool = False,
     **kwargs,
 ) -> tuple:
     """Call chat completions with automatic provider fallback.
 
     Returns (response, model_name) where model_name is the model actually used.
     This allows callers to track costs accurately when a fallback fires.
+
+    Args:
+        json_mode: When True, requests strict JSON output via
+            ``response_format={"type": "json_object"}`` for providers that
+            support it (OpenAI, DeepSeek). Silently no-ops for providers
+            that don't (Anthropic). Callers should still be tolerant of
+            markdown fences for the no-op case.
 
     Fallback policy:
       * APITimeoutError / APIConnectionError / RateLimitError → try next provider
@@ -66,12 +80,17 @@ async def llm_chat_completion(
         provider_model = model or provider_cfg["model"]
         client = _build_client(provider_cfg)
 
+        call_kwargs = dict(kwargs)
+        if json_mode and provider_cfg.get("name") in _JSON_MODE_PROVIDERS:
+            # Don't clobber an explicit caller-supplied response_format.
+            call_kwargs.setdefault("response_format", {"type": "json_object"})
+
         try:
             response = await client.chat.completions.create(
                 model=provider_model,
                 messages=messages,
                 temperature=temperature,
-                **kwargs,
+                **call_kwargs,
             )
             if i > 0:
                 logger.info(
