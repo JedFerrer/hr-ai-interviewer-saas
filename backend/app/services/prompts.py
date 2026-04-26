@@ -197,6 +197,21 @@ SCORING INSTRUCTIONS:
 - missing_must_haves: list of explicit requirements from the JD that are absent from the resume.
 - rationale: 1-2 sentence explanation of the score, ideally citing one piece of evidence.
 
+SENIORITY ALIGNMENT (apply before assigning final score):
+- If the job title contains "Senior", "Lead", "Staff", or "Principal" AND the candidate has
+  fewer than 4 years of experience OR a "Junior"/"Intern"/"Associate" current title,
+  cap the final score at 50 even if many skills match. This reflects how an HR would
+  not auto-invite a junior to a senior interview, regardless of skill keyword overlap.
+- If the job is junior-level and the candidate is senior with strong skills, do NOT penalize
+  for being overqualified — score on skill fit.
+
+MISSING MUST-HAVE HANDLING:
+- Each required skill that is completely absent from the deterministic evidence should
+  reduce the candidate's ceiling. As a guideline: each missing required skill subtracts
+  roughly 8-12 points from what would otherwise be a perfect score.
+- A single missing skill with strong adjacent experience (e.g. Docker present, Kubernetes
+  missing) is a softer penalty than a missing skill with no adjacent evidence.
+
 Be conservative: do not invent matches. Prefer evidence from listed experience and skills.
 Penalize obvious mismatches (e.g. a junior PM resume for a senior backend role) heavily.
 
