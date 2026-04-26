@@ -182,13 +182,20 @@ Job description:
 Candidate resume (parsed):
 {resume_data}
 
+Deterministic skill evidence (computed by alias-aware keyword search BEFORE you scored):
+{skill_evidence}
+
 SCORING INSTRUCTIONS:
+- Treat the deterministic skill evidence above as ground truth for skill presence/absence.
+  You MAY still penalise a skill that is technically listed but never used (e.g. one bullet
+  vs. years of experience), but do NOT mark a skill "missing" if it appears in the evidence.
 - score: integer 0-100. 100 = perfect fit, 0 = completely unrelated background.
 - confidence: float 0.0-1.0 — how confident you are in the score given the evidence.
   Lower confidence when the resume is sparse, generic, or the JD is ambiguous.
-- matched_skills: list of skills from the resume that map to the JD requirements.
+- matched_skills: list of skills from the resume that map to the JD requirements
+  (you can refine the deterministic list with depth/seniority judgement).
 - missing_must_haves: list of explicit requirements from the JD that are absent from the resume.
-- rationale: 1-2 sentence explanation of the score.
+- rationale: 1-2 sentence explanation of the score, ideally citing one piece of evidence.
 
 Be conservative: do not invent matches. Prefer evidence from listed experience and skills.
 Penalize obvious mismatches (e.g. a junior PM resume for a senior backend role) heavily.

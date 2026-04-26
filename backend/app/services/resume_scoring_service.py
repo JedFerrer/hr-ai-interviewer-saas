@@ -6,6 +6,12 @@ auto-invite vs. HR-review routing.
 
 The function is intentionally pure-ish: it only calls the LLM and validates
 output. Persistence + decision routing live in their own modules.
+
+Phase 2 / Item 8: every LLM call is grounded by a deterministic alias-aware
+skill match (`skill_matcher.compute_skill_match`). The result is both
+injected into the prompt as evidence and returned as a separate
+`deterministic_match` block so the UI can show evidence chips that don't
+depend on a fresh LLM call.
 """
 
 from __future__ import annotations
@@ -19,8 +25,18 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.services.llm_client import llm_chat_completion
 from app.services.llm_utils import strip_code_fences
 from app.services.prompts import RESUME_SCORING_PROMPT
+from app.services.skill_matcher import compute_skill_match, report_to_dict
 
 logger = logging.getLogger(__name__)
+
+
+class DeterministicMatch(BaseModel):
+    """Rule-based skill match shipped alongside the LLM verdict."""
+    model_config = ConfigDict(extra="ignore")
+    matched_skills: list[str] = Field(default_factory=list)
+    missing_skills: list[str] = Field(default_factory=list)
+    recall: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence: dict[str, str] = Field(default_factory=dict)
 
 
 class ResumeMatchBreakdown(BaseModel):
@@ -42,6 +58,9 @@ class ResumeMatchResult(TypedDict):
     matched_skills: list[str]
     missing_must_haves: list[str]
     rationale: str
+    # Deterministic skill match (Phase 2 / Item 8). Always populated, even
+    # when `required_skills` is empty (the inner lists will just be empty).
+    deterministic_match: dict
     prompt_tokens: int
     completion_tokens: int
 
@@ -58,11 +77,17 @@ async def score_resume_match(
     Raises ValueError on invalid LLM output so the caller can route to the
     `error` decision branch rather than persisting garbage.
     """
+    # 1. Deterministic alias-aware skill match — runs before the LLM and
+    #    becomes both evidence in the prompt and a separate result block.
+    deterministic_report = compute_skill_match(required_skills, resume_data)
+    deterministic_dict = report_to_dict(deterministic_report)
+
     prompt = RESUME_SCORING_PROMPT.format(
         job_title=job_title,
         required_skills=", ".join(required_skills) if required_skills else "(none specified)",
         job_description=job_description,
         resume_data=json.dumps(resume_data, indent=2, default=str),
+        skill_evidence=json.dumps(deterministic_dict, indent=2),
     )
 
     response, _model = await llm_chat_completion(
@@ -95,6 +120,7 @@ async def score_resume_match(
         matched_skills=validated.matched_skills,
         missing_must_haves=validated.missing_must_haves,
         rationale=validated.rationale,
+        deterministic_match=deterministic_dict,
         prompt_tokens=pt,
         completion_tokens=ct,
     )

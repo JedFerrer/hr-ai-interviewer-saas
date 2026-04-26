@@ -1,0 +1,226 @@
+"""Deterministic skill matching: alias-aware keyword recall.
+
+This is the rule-based half of the scoring pipeline. It runs before the LLM
+and produces a hard, reproducible signal — "5 of 7 required skills appear
+in the resume, with these exact quotes" — that:
+
+  1. Grounds the LLM scoring prompt with verifiable evidence.
+  2. Gives the UI evidence chips that don't depend on a fresh LLM call.
+  3. Lets the eval harness measure regressions independently of the LLM.
+
+Design notes
+------------
+* The alias map is intentionally small and curated. Anything more would need
+  a real skill taxonomy (ESCO, O*NET) which is out of scope here. Adding
+  aliases is a one-line change.
+* Matching is whole-word and case-insensitive. We match against the full
+  resume text reconstructed from `ResumeData` (skills + experience
+  highlights/role/company + summary + education) so a skill mentioned only
+  in a project description still counts.
+* Evidence is a single representative quote (≤120 chars) so the UI can show
+  one chip per skill without exploding into walls of text.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+# Canonical skill name -> list of aliases (including the canonical form
+# itself; matching is case-insensitive). Keep ordered roughly by recruiter
+# frequency. Add new entries when an obviously equivalent variant shows up
+# in production scoring logs.
+_SKILL_ALIASES: dict[str, tuple[str, ...]] = {
+    "react": ("react", "reactjs", "react.js", "react js"),
+    "node.js": ("node.js", "nodejs", "node js", "node"),
+    "next.js": ("next.js", "nextjs", "next js"),
+    "typescript": ("typescript", "ts"),
+    "javascript": ("javascript", "js"),
+    "python": ("python", "py"),
+    "fastapi": ("fastapi", "fast api"),
+    "django": ("django",),
+    "flask": ("flask",),
+    "postgresql": ("postgresql", "postgres", "psql"),
+    "mysql": ("mysql",),
+    "sqlite": ("sqlite",),
+    "mongodb": ("mongodb", "mongo"),
+    "redis": ("redis",),
+    "docker": ("docker",),
+    "kubernetes": ("kubernetes", "k8s"),
+    "terraform": ("terraform",),
+    "aws": ("aws", "amazon web services"),
+    "gcp": ("gcp", "google cloud", "google cloud platform"),
+    "azure": ("azure", "microsoft azure"),
+    "ci/cd": ("ci/cd", "ci cd", "continuous integration", "continuous delivery"),
+    "graphql": ("graphql", "graph ql"),
+    "rest api": ("rest api", "rest", "restful"),
+    "tailwind css": ("tailwind css", "tailwind", "tailwindcss"),
+    "html": ("html", "html5"),
+    "css": ("css", "css3"),
+    "git": ("git",),
+    "linux": ("linux",),
+}
+
+
+# Reverse lookup: any alias -> canonical name. Built once at import time.
+_ALIAS_TO_CANONICAL: dict[str, str] = {
+    alias.lower(): canonical
+    for canonical, aliases in _SKILL_ALIASES.items()
+    for alias in aliases
+}
+
+
+def normalize_skill(skill: str) -> str:
+    """Map a raw skill string to its canonical form (or itself, lowercased).
+
+    Falls back to the cleaned input when no alias entry is known so unknown
+    skills still match themselves verbatim.
+    """
+    cleaned = skill.strip().lower()
+    return _ALIAS_TO_CANONICAL.get(cleaned, cleaned)
+
+
+@dataclass(frozen=True)
+class SkillMatch:
+    """Outcome of matching one required skill against a resume."""
+    canonical: str           # canonical skill name
+    matched: bool            # True iff any alias was found in the resume text
+    quote: str | None = None  # representative quote (≤120 chars) when matched
+
+
+@dataclass(frozen=True)
+class SkillMatchReport:
+    """Aggregate report for all required skills against one resume."""
+    matched_skills: list[str] = field(default_factory=list)
+    missing_skills: list[str] = field(default_factory=list)
+    # recall = matched / total_required. 0.0 when no required skills given.
+    recall: float = 0.0
+    # Per-skill evidence: canonical name -> quote (only matched skills).
+    evidence: dict[str, str] = field(default_factory=dict)
+
+
+def _resume_haystack(resume_data: dict) -> str:
+    """Flatten a parsed resume into a single searchable string."""
+    parts: list[str] = []
+
+    parts.append(resume_data.get("summary") or "")
+    parts.append(resume_data.get("current_role") or "")
+    parts.append(resume_data.get("current_company") or "")
+    parts.extend(resume_data.get("skills") or [])
+
+    for exp in resume_data.get("experience") or []:
+        if not isinstance(exp, dict):
+            continue
+        parts.append(exp.get("role") or exp.get("title") or "")
+        parts.append(exp.get("company") or "")
+        parts.append(exp.get("duration") or "")
+        # `highlights` is the new shape; `description` is the legacy one.
+        highlights = exp.get("highlights") or []
+        if isinstance(highlights, list):
+            parts.extend(str(h) for h in highlights)
+        if exp.get("description"):
+            parts.append(str(exp["description"]))
+
+    for edu in resume_data.get("education") or []:
+        if not isinstance(edu, dict):
+            continue
+        parts.append(edu.get("degree") or "")
+        parts.append(edu.get("institution") or "")
+
+    return "\n".join(p for p in parts if p)
+
+
+def _alias_pattern(alias: str) -> re.Pattern[str]:
+    """Build a whole-word regex for one alias.
+
+    `\b` doesn't behave well around symbols like `.` and `/` that appear in
+    skills like `node.js` or `ci/cd`, so we frame the alias with explicit
+    non-word-or-skill-char lookarounds.
+    """
+    escaped = re.escape(alias)
+    # Allow start/end-of-string, whitespace, or common punctuation as boundaries.
+    return re.compile(rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])", re.IGNORECASE)
+
+
+def _find_quote(text: str, match_start: int, match_end: int, max_chars: int = 120) -> str:
+    """Extract a short quote around a match, snapping to nearby whitespace."""
+    # Prefer the line containing the match.
+    line_start = text.rfind("\n", 0, match_start) + 1
+    line_end = text.find("\n", match_end)
+    if line_end == -1:
+        line_end = len(text)
+    line = text[line_start:line_end].strip()
+    if len(line) <= max_chars:
+        return line
+    # Truncate around the match within the line.
+    rel_start = max(0, match_start - line_start - max_chars // 2)
+    return line[rel_start : rel_start + max_chars].strip() + "…"
+
+
+def compute_skill_match(
+    required_skills: list[str],
+    resume_data: dict,
+) -> SkillMatchReport:
+    """Run the deterministic skill match and return a report.
+
+    Args:
+        required_skills: skills declared on the job posting (free-form
+            strings; aliases are resolved internally).
+        resume_data: the validated `ResumeData` dict (or a legacy payload
+            that still has `title`/`description`).
+
+    Returns:
+        A `SkillMatchReport` with matched_skills / missing_skills /
+        recall / per-skill evidence.
+    """
+    if not required_skills:
+        return SkillMatchReport(recall=0.0)
+
+    haystack = _resume_haystack(resume_data)
+
+    matched: list[str] = []
+    missing: list[str] = []
+    evidence: dict[str, str] = {}
+    seen_canonical: set[str] = set()
+
+    for raw in required_skills:
+        canonical = normalize_skill(raw)
+        if canonical in seen_canonical:
+            continue
+        seen_canonical.add(canonical)
+
+        aliases = _SKILL_ALIASES.get(canonical, (canonical,))
+
+        hit_quote: str | None = None
+        for alias in aliases:
+            pattern = _alias_pattern(alias)
+            m = pattern.search(haystack)
+            if m:
+                hit_quote = _find_quote(haystack, m.start(), m.end())
+                break
+
+        if hit_quote is not None:
+            matched.append(canonical)
+            evidence[canonical] = hit_quote
+        else:
+            missing.append(canonical)
+
+    total = len(matched) + len(missing)
+    recall = len(matched) / total if total else 0.0
+
+    return SkillMatchReport(
+        matched_skills=matched,
+        missing_skills=missing,
+        recall=recall,
+        evidence=evidence,
+    )
+
+
+def report_to_dict(report: SkillMatchReport) -> dict:
+    """JSON-serializable form (used by the LLM prompt + the UI breakdown)."""
+    return {
+        "matched_skills": list(report.matched_skills),
+        "missing_skills": list(report.missing_skills),
+        "recall": round(report.recall, 3),
+        "evidence": dict(report.evidence),
+    }

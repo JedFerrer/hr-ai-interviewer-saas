@@ -281,6 +281,10 @@ async def process_application_background(
                     "matched_skills": match["matched_skills"],
                     "missing_must_haves": match["missing_must_haves"],
                     "rationale": match["rationale"],
+                    # Phase 2 / Item 8: surface the deterministic skill
+                    # match alongside the LLM verdict so the UI can render
+                    # evidence chips without re-running the LLM.
+                    "deterministic_match": match["deterministic_match"],
                 }
                 total_pt += match["prompt_tokens"]
                 total_ct += match["completion_tokens"]

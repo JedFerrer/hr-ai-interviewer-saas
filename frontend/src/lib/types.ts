@@ -189,6 +189,17 @@ export interface PreScreenSummary {
     matched_skills?: string[];
     missing_must_haves?: string[];
     rationale?: string;
+    /**
+     * Deterministic alias-aware skill match (Phase 2 / Item 8). Always
+     * present on freshly-scored candidates; legacy rows scored before
+     * Phase 2 won't have it.
+     */
+    deterministic_match?: {
+      matched_skills: string[];
+      missing_skills: string[];
+      recall: number;
+      evidence: Record<string, string>;
+    };
   } | null;
   pre_screened_at: string | null;
   invite_sent_at: string | null;
