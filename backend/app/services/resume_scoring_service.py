@@ -17,6 +17,7 @@ from typing import TypedDict
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services.llm_client import llm_chat_completion
+from app.services.llm_utils import strip_code_fences
 from app.services.prompts import RESUME_SCORING_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -45,16 +46,6 @@ class ResumeMatchResult(TypedDict):
     completion_tokens: int
 
 
-def _strip_code_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        first_nl = text.index("\n")
-        text = text[first_nl + 1:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return text.strip()
-
-
 async def score_resume_match(
     *,
     resume_data: dict,
@@ -79,7 +70,7 @@ async def score_resume_match(
         temperature=0.1,
     )
     raw = response.choices[0].message.content or ""
-    cleaned = _strip_code_fences(raw)
+    cleaned = strip_code_fences(raw)
 
     try:
         raw_data = json.loads(cleaned)

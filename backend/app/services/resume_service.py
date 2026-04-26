@@ -10,6 +10,7 @@ from docx import Document as DocxDocument
 from openai import AsyncOpenAI, OpenAI
 
 from app.config import get_settings
+from app.services.llm_utils import strip_code_fences
 from app.services.prompts import RESUME_EXTRACTION_PROMPT
 
 _settings = get_settings()
@@ -67,7 +68,7 @@ def parse_resume_with_llm(
         temperature=0.1,
     )
     raw = response.choices[0].message.content or ""
-    cleaned = _strip_code_fences(raw)
+    cleaned = strip_code_fences(raw)
     data = json.loads(cleaned)
 
     pt = response.usage.prompt_tokens if response.usage else 0
@@ -94,7 +95,7 @@ async def parse_resume_with_llm_async(
         temperature=0.1,
     )
     raw = response.choices[0].message.content or ""
-    cleaned = _strip_code_fences(raw)
+    cleaned = strip_code_fences(raw)
     raw_data = json.loads(cleaned)
     if not isinstance(raw_data, dict):
         raise ValueError("LLM did not return a JSON object for resume data")
@@ -110,12 +111,3 @@ async def parse_resume_with_llm_async(
     return data, pt, ct
 
 
-def _strip_code_fences(text: str) -> str:
-    """Remove markdown code fences if present."""
-    text = text.strip()
-    if text.startswith("```"):
-        first_nl = text.index("\n")
-        text = text[first_nl + 1:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return text.strip()
