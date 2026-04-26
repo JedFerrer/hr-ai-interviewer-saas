@@ -41,8 +41,16 @@ class JobPosting(Base, TimestampMixin):
     #   "auto_all"         — invite every candidate whose resume parses (legacy)
     #   "hybrid_threshold" — score-based; clear-fit auto-invite, borderline → HR review
     #   "manual_all"       — every applicant lands in HR review queue
+    #
+    # Default flipped from "auto_all" to "hybrid_threshold" in migration
+    # c3d4e5f6a7b8 so newly-created jobs benefit from the resume scoring
+    # gate without HR having to opt in. Existing rows are migrated only
+    # when they still hold the previous default.
     screening_mode: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="auto_all", server_default="auto_all"
+        String(32),
+        nullable=False,
+        default="hybrid_threshold",
+        server_default="hybrid_threshold",
     )
     # Score (0-100) at/above which candidates are auto-invited under hybrid mode.
     auto_invite_threshold: Mapped[int] = mapped_column(

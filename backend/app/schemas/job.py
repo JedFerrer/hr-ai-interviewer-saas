@@ -24,7 +24,7 @@ class ScreeningPolicy(BaseModel):
     auto_invite_threshold (otherwise no candidate could ever land in the
     review band under hybrid mode).
     """
-    screening_mode: ScreeningMode = "auto_all"
+    screening_mode: ScreeningMode = "hybrid_threshold"
     auto_invite_threshold: int = Field(default=75, ge=0, le=100)
     review_threshold: int = Field(default=55, ge=0, le=100)
 
