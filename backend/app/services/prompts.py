@@ -205,12 +205,28 @@ SENIORITY ALIGNMENT (apply before assigning final score):
 - If the job is junior-level and the candidate is senior with strong skills, do NOT penalize
   for being overqualified — score on skill fit.
 
-MISSING MUST-HAVE HANDLING:
-- Each required skill that is completely absent from the deterministic evidence should
-  reduce the candidate's ceiling. As a guideline: each missing required skill subtracts
-  roughly 8-12 points from what would otherwise be a perfect score.
-- A single missing skill with strong adjacent experience (e.g. Docker present, Kubernetes
-  missing) is a softer penalty than a missing skill with no adjacent evidence.
+MISSING MUST-HAVE HANDLING (must produce a measurable score delta):
+- Each required skill that is completely absent from the deterministic evidence MUST
+  reduce the score. Baseline penalty: subtract 8-12 points per missing required skill
+  from the score the candidate would otherwise have earned.
+- Two otherwise-identical candidates where one is missing a required skill MUST end
+  up at least 8 points apart. If you find yourself giving them the same score,
+  re-apply the per-skill penalty before returning.
+- "Adjacent" softer penalty (reduce to ~4-6 pts) ONLY applies when the missing skill
+  and a present skill are in the SAME ecosystem and one is a routine substitute or
+  next-step for the other. Examples that ARE adjacent:
+    * Docker present, Kubernetes missing
+    * PostgreSQL present, MySQL missing
+    * React present, Next.js missing
+    * AWS present, GCP missing
+  Examples that are NOT adjacent (apply the FULL 8-12 pt penalty):
+    * Python/Django/FastAPI/Rails present, Node.js missing (different runtime + language)
+    * Java present, Python missing
+    * SQL databases present, MongoDB missing
+    * Frontend skills present, backend skill missing (or vice versa)
+  When in doubt, treat skills as NOT adjacent and apply the full penalty.
+- Confidence should also drop (by ~0.05-0.10) when a required skill is missing and
+  you are inferring from adjacent experience.
 
 Be conservative: do not invent matches. Prefer evidence from listed experience and skills.
 Penalize obvious mismatches (e.g. a junior PM resume for a senior backend role) heavily.
