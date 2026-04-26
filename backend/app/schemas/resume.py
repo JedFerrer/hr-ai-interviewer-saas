@@ -17,6 +17,9 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 class ResumeExperience(BaseModel):
     # `populate_by_name=True` lets us keep the canonical name `role` while
     # accepting legacy `title` payloads stored in older candidate rows.
+    # `description` (legacy free-text) is intentionally dropped via
+    # `extra="ignore"` because it's incompatible with the new
+    # `highlights: list[str]` shape.
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
     company: str | None = None
     role: str | None = Field(
@@ -24,10 +27,7 @@ class ResumeExperience(BaseModel):
         validation_alias=AliasChoices("role", "title"),
     )
     duration: str | None = None
-    highlights: list[str] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("highlights", "description"),
-    )
+    highlights: list[str] = Field(default_factory=list)
 
 
 class ResumeEducation(BaseModel):
