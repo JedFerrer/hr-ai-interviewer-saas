@@ -191,7 +191,19 @@ SCORING INSTRUCTIONS:
   vs. years of experience), but do NOT mark a skill "missing" if it appears in the evidence.
 - score: integer 0-100. 100 = perfect fit, 0 = completely unrelated background.
 - confidence: float 0.0-1.0 — how confident you are in the score given the evidence.
-  Lower confidence when the resume is sparse, generic, or the JD is ambiguous.
+  Calibration guide:
+    * 0.85-1.0  : resume is detailed, multiple experience entries with concrete
+                  highlights, skills are evidenced in bullets (not just listed).
+    * 0.60-0.85 : resume is adequate but some required skills are inferred from
+                  adjacent experience, or evidence depth is uneven.
+    * 0.30-0.60 : resume is sparse (e.g. <2 experience entries, very short
+                  highlights, skills only listed without context), OR the JD is
+                  ambiguous, OR the candidate's domain differs from the JD.
+    * 0.0-0.30  : resume is near-empty (no experience entries, no current role,
+                  only a handful of bare skill tokens), or the data is so thin
+                  that any score is mostly a guess.
+  When in doubt, prefer LOWER confidence — HR uses confidence to decide whether
+  to send to human review.
 - matched_skills: list of skills from the resume that map to the JD requirements
   (you can refine the deterministic list with depth/seniority judgement).
 - missing_must_haves: list of explicit requirements from the JD that are absent from the resume.
