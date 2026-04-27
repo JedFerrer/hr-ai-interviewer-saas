@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -42,7 +43,7 @@ from app.utils.storage import (
     validate_resume_file,
 )
 from app.utils.token_tracker import calculate_cost
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -58,6 +59,46 @@ LLM_MODEL = settings.active_llm_model
 # Strong references for fire-and-forget background tasks. Without this, the
 # event loop only holds a weak reference and tasks may be GC'd mid-execution.
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+# SQLite can only handle a single writer at a time. When a burst of /apply
+# calls fan out into background tasks that all try to write concurrently,
+# they hit `database is locked` mid-flush — past the point where a commit
+# retry can recover. Cap concurrency to keep the backend stable on SQLite.
+# (Set high enough that Postgres deployments aren't bottlenecked.)
+_BG_CONCURRENCY = int(os.environ.get("BG_PIPELINE_CONCURRENCY", "3"))
+_BG_SEMAPHORE = asyncio.Semaphore(_BG_CONCURRENCY)
+
+
+async def _commit_with_retry(db: AsyncSession, *, attempts: int = 4) -> None:
+    """Commit with backoff on transient SQLite lock errors.
+
+    Even with WAL + busy_timeout, bursts of concurrent background writes
+    can still hit `OperationalError: database is locked` once the timeout
+    is exhausted. Rather than failing the whole pipeline, back off briefly
+    and retry — this is safe because we hold no other resource.
+    """
+    delay = 0.5
+    for i in range(attempts):
+        try:
+            await db.commit()
+            return
+        except OperationalError as exc:
+            msg = str(exc).lower()
+            if "locked" not in msg and "busy" not in msg:
+                raise
+            if i == attempts - 1:
+                logger.error("Commit failed after %d retries: %s", attempts, exc)
+                raise
+            logger.warning(
+                "DB locked on commit (attempt %d/%d); backing off %.1fs",
+                i + 1, attempts, delay,
+            )
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            await asyncio.sleep(delay)
+            delay *= 2
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +225,17 @@ async def apply(
             status_code=status.HTTP_409_CONFLICT,
             detail="You have already applied for this position.",
         )
+    except OperationalError as exc:
+        # SQLite "database is locked" or transient PG issue. Surface as 503
+        # with Retry-After so the client (and load balancers) can back off
+        # rather than treating it as a real server bug.
+        await db.rollback()
+        logger.warning("apply: transient DB error for %s: %s", normalized, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service is busy, please retry in a few seconds.",
+            headers={"Retry-After": "5"},
+        ) from exc
     await db.refresh(candidate)
     audit(
         "candidate.applied",
@@ -211,7 +263,11 @@ async def process_application_background(
 
     Uses its own DB session (not the request session).
     """
-    async with async_session_factory() as db:
+    # Throttle concurrent pipelines to avoid SQLite write-lock storms.
+    # (Manual acquire/release so we don't have to re-indent the whole body.)
+    await _BG_SEMAPHORE.acquire()
+    try:
+      async with async_session_factory() as db:
         try:
             # Re-load candidate + job
             candidate = await db.get(Candidate, candidate_id)
@@ -249,7 +305,7 @@ async def process_application_background(
                 candidate.pre_screen_decision = "error"
                 candidate.pre_screen_reason = f"Resume could not be parsed: {exc}"
                 candidate.pre_screened_at = datetime.now(timezone.utc)
-                await db.commit()
+                await _commit_with_retry(db)
                 audit(
                     "candidate.resume_parse_failed",
                     candidate_id=candidate_id,
@@ -345,7 +401,7 @@ async def process_application_background(
             if outcome.decision != "auto_invite":
                 # Park the candidate; HR will approve/reject from the dashboard.
                 candidate.status = "review_pending"
-                await db.commit()
+                await _commit_with_retry(db)
                 logger.info(
                     "Candidate %s routed to %s (score=%s, mode=%s)",
                     candidate_id,
@@ -366,7 +422,7 @@ async def process_application_background(
                 running_ct=total_ct,
             )
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Background processing failed for candidate %s", candidate_id)
             # Mark candidate with error status using a fresh session (original may be broken)
             try:
@@ -374,9 +430,16 @@ async def process_application_background(
                     candidate = await err_db.get(Candidate, candidate_id)
                     if candidate:
                         candidate.status = "error"
-                        await err_db.commit()
+                        candidate.pre_screen_decision = "error"
+                        candidate.pre_screen_reason = (
+                            f"Background processing failed: {type(exc).__name__}: {exc}"
+                        )[:500]
+                        candidate.pre_screened_at = datetime.now(timezone.utc)
+                        await _commit_with_retry(err_db)
             except Exception:
                 logger.exception("Failed to revert candidate status")
+    finally:
+        _BG_SEMAPHORE.release()
 
 
 async def _build_interview_and_invite(
@@ -438,7 +501,7 @@ async def _build_interview_and_invite(
     candidate.status = "ready"
     candidate.interview_link_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     candidate.invite_sent_at = datetime.now(timezone.utc)
-    await db.commit()
+    await _commit_with_retry(db)
 
     interview_link = f"{settings.app_url}/interview/session/{candidate.interview_token}"
     await send_interview_invite(

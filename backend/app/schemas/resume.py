@@ -11,7 +11,7 @@ that used `title`/`description` still validate via `AliasChoices`.
 
 from __future__ import annotations
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class ResumeExperience(BaseModel):
@@ -36,7 +36,18 @@ class ResumeEducation(BaseModel):
     institution: str | None = None
     # Year is kept as a string: resumes commonly use ranges ("2018-2022") or
     # partial dates ("Expected 2026") that don't fit a plain integer.
+    # We coerce ints (LLM frequently returns 2023 instead of "2023") so
+    # parsing doesn't fail on an otherwise-fine resume.
     year: str | None = None
+
+    @field_validator("year", mode="before")
+    @classmethod
+    def _coerce_year(cls, v):  # noqa: ANN001
+        if v is None or isinstance(v, str):
+            return v
+        # Accept int / float years from the LLM; everything else falls back
+        # to str() so we never hard-fail on a numeric year.
+        return str(v)
 
 
 class ResumeData(BaseModel):
