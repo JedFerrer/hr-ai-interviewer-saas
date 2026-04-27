@@ -42,7 +42,7 @@ async def test_happy_path_returns_full_result() -> None:
         new=AsyncMock(return_value=(response, "deepseek-chat")),
     ):
         result = await score_resume_match(
-            resume_data={"name": "X"},
+            resume_data={"name": "X", "skills": ["Python", "FastAPI"]},
             job_title="Backend Engineer",
             job_description="Build APIs.",
             required_skills=["Python", "FastAPI"],
@@ -55,6 +55,33 @@ async def test_happy_path_returns_full_result() -> None:
     assert result["rationale"] == "Strong backend match."
     assert result["prompt_tokens"] == 200
     assert result["completion_tokens"] == 80
+    # Phase 2 / Item 8: deterministic match should be populated even though
+    # the mocked LLM payload doesn't include it.
+    det = result["deterministic_match"]
+    assert set(det["matched_skills"]) == {"python", "fastapi"}
+    assert det["missing_skills"] == []
+    assert det["recall"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_deterministic_match_populated_even_when_skills_missing() -> None:
+    response = _fake_response(json.dumps(_VALID_PAYLOAD))
+
+    with patch(
+        "app.services.resume_scoring_service.llm_chat_completion",
+        new=AsyncMock(return_value=(response, "deepseek-chat")),
+    ):
+        result = await score_resume_match(
+            resume_data={"name": "X", "skills": []},
+            job_title="X",
+            job_description="X",
+            required_skills=["Kubernetes"],
+        )
+
+    det = result["deterministic_match"]
+    assert det["matched_skills"] == []
+    assert det["missing_skills"] == ["kubernetes"]
+    assert det["recall"] == 0.0
 
 
 @pytest.mark.asyncio

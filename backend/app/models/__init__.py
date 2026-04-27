@@ -7,6 +7,7 @@ from app.models.email_template import EmailTemplate
 from app.models.evaluation import EvaluationRecord
 from app.models.interview import Interview
 from app.models.job_posting import JobPosting
+from app.models.screening_outcome import ScreeningOutcome
 from app.models.share_token import CandidateShareToken
 from app.models.user import User
 
@@ -19,5 +20,6 @@ __all__ = [
     "EvaluationRecord",
     "Interview",
     "JobPosting",
+    "ScreeningOutcome",
     "User",
 ]
