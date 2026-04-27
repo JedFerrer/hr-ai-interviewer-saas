@@ -26,6 +26,19 @@ class TestNormalizeSkill:
             ("k8s", "kubernetes"),
             ("ts", "typescript"),
             ("tailwindcss", "tailwind css"),
+            # ---- Cross-industry alias normalization (D) ----
+            ("Certified Public Accountant", "cpa"),
+            ("Juris Doctor", "jd"),
+            ("Registered Nurse", "rn license"),
+            ("Project Management Professional", "pmp"),
+            ("Search Engine Optimization", "seo"),
+            ("Google AdWords", "google ads"),
+            ("Facebook Ads", "meta ads"),
+            ("National Electrical Code", "nec code"),
+            ("Oracle NetSuite", "netsuite"),
+            ("Workday HCM", "workday"),
+            ("Certified Scrum Master", "scrum master"),
+            ("Advanced Cardiac Life Support", "acls"),
         ],
     )
     def test_aliases_normalize_to_canonical(self, raw: str, expected: str) -> None:
@@ -146,3 +159,100 @@ class TestComputeSkillMatch:
         assert report.matched_skills == []
         assert report.missing_skills == ["python"]
         assert report.recall == 0.0
+
+
+class TestCrossIndustryAliasMatching:
+    """End-to-end matcher behaviour for cross-industry aliases (D)."""
+
+    def _resume(self, skills, experience=None) -> dict:
+        return {
+            "name": "Test Person",
+            "summary": "",
+            "skills": skills,
+            "experience": experience or [],
+            "education": [],
+        }
+
+    def test_jd_cpa_matches_resume_certified_public_accountant(self) -> None:
+        report = compute_skill_match(
+            ["CPA"],
+            self._resume(skills=["Certified Public Accountant", "QuickBooks"]),
+        )
+        assert "cpa" in report.matched_skills
+
+    def test_jd_registered_nurse_matches_rn(self) -> None:
+        report = compute_skill_match(
+            ["Registered Nurse"],
+            self._resume(skills=["RN", "BLS"]),
+        )
+        assert "rn license" in report.matched_skills
+
+    def test_jd_pmp_matches_project_management_professional(self) -> None:
+        report = compute_skill_match(
+            ["PMP"],
+            self._resume(skills=["Project Management Professional", "Jira"]),
+        )
+        assert "pmp" in report.matched_skills
+
+    def test_jd_seo_matches_search_engine_optimization(self) -> None:
+        report = compute_skill_match(
+            ["SEO"],
+            self._resume(skills=["Search Engine Optimization", "Google Analytics"]),
+        )
+        assert "seo" in report.matched_skills
+
+    def test_jd_juris_doctor_matches_jd_acronym(self) -> None:
+        report = compute_skill_match(
+            ["Juris Doctor"],
+            self._resume(skills=["JD", "Westlaw"]),
+        )
+        assert "jd" in report.matched_skills
+
+    def test_md_acronym_does_not_match_arbitrary_md(self) -> None:
+        # Whole-word matching: "MD" should not match "command" or random text.
+        # But "Doctor of Medicine" should.
+        report = compute_skill_match(
+            ["MD"],
+            self._resume(
+                skills=["Patient care"],
+                experience=[
+                    {
+                        "company": "Hospital",
+                        "role": "Nurse",
+                        "duration": "2020-Present",
+                        "highlights": ["Followed commands from supervisor."],
+                    }
+                ],
+            ),
+        )
+        assert "md" in report.missing_skills
+
+    def test_meta_ads_matches_facebook_ads(self) -> None:
+        report = compute_skill_match(
+            ["Meta Ads"],
+            self._resume(skills=["Facebook Ads", "Google Ads"]),
+        )
+        assert "meta ads" in report.matched_skills
+
+    def test_workday_matches_workday_hcm(self) -> None:
+        report = compute_skill_match(
+            ["Workday"],
+            self._resume(skills=["Workday HCM", "Greenhouse"]),
+        )
+        assert "workday" in report.matched_skills
+
+    def test_alias_match_recall_reaches_100_percent(self) -> None:
+        # All 4 JD skills should be found via aliases — proves end-to-end
+        # recall on a realistic finance resume.
+        report = compute_skill_match(
+            ["CPA", "GAAP", "NetSuite", "QuickBooks"],
+            self._resume(
+                skills=[
+                    "Certified Public Accountant",
+                    "Generally Accepted Accounting Principles",
+                    "Oracle NetSuite",
+                    "QuickBooks Online",
+                ],
+            ),
+        )
+        assert report.recall == 1.0

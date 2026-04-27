@@ -317,6 +317,23 @@ async def process_application_background(
             candidate.pre_screen_reason = outcome.reason
             candidate.pre_screened_at = datetime.now(timezone.utc)
 
+            # Append-only calibration log: every prediction is recorded so
+            # we can later compare against HR's ground-truth decision.
+            from app.services.screening_outcome_service import record_prediction
+
+            det_match = (match_breakdown or {}).get("deterministic_match") or {}
+            await record_prediction(
+                db=db,
+                candidate_id=candidate_id,
+                job_posting_id=job_id,
+                score=match_score,
+                confidence=match_confidence,
+                decision=outcome.decision,
+                matched_skills=det_match.get("matched_skills"),
+                missing_skills=det_match.get("missing_skills"),
+                deterministic_recall=det_match.get("recall"),
+            )
+
             audit(
                 "candidate.pre_screened",
                 candidate_id=candidate_id,

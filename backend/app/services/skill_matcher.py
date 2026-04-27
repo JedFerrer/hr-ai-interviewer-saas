@@ -30,7 +30,20 @@ from dataclasses import dataclass, field
 # itself; matching is case-insensitive). Keep ordered roughly by recruiter
 # frequency. Add new entries when an obviously equivalent variant shows up
 # in production scoring logs.
+#
+# Alias governance (read before adding):
+#   1. Aliases must be symmetric and unambiguous — "CPA" and
+#      "Certified Public Accountant" mean the same thing in any context.
+#   2. Aliases are NOT equivalents — "PostgreSQL" and "MySQL" are both
+#      relational DBs but are NOT aliases of each other.
+#   3. Stay within a single product line — alias "Workday" to
+#      "Workday HCM" only if the JD uses them interchangeably; do not
+#      alias "Workday" to "Workday Financials".
+#   4. Avoid acronym collisions. "MD" can mean Medical Doctor, Maryland,
+#      or Managing Director — only register the medical-doctor expansion
+#      and rely on whole-word matching to fail gracefully on the others.
 _SKILL_ALIASES: dict[str, tuple[str, ...]] = {
+    # ---- Tech (existing) ----
     "react": ("react", "reactjs", "react.js", "react js"),
     "node.js": ("node.js", "nodejs", "node js", "node"),
     "next.js": ("next.js", "nextjs", "next js"),
@@ -59,6 +72,68 @@ _SKILL_ALIASES: dict[str, tuple[str, ...]] = {
     "css": ("css", "css3"),
     "git": ("git",),
     "linux": ("linux",),
+
+    # ---- Healthcare ----
+    "rn license": ("rn license", "registered nurse", "rn", "nursing license"),
+    "md": ("md", "medical doctor", "doctor of medicine"),
+    "bls": ("bls", "basic life support"),
+    "acls": ("acls", "advanced cardiac life support"),
+    "pals": ("pals", "pediatric advanced life support"),
+    "epic ehr": ("epic ehr", "epic systems", "epic"),
+    "cerner": ("cerner",),
+    "hipaa": ("hipaa",),
+
+    # ---- Finance / Accounting ----
+    "cpa": ("cpa", "certified public accountant"),
+    "cfa": ("cfa", "chartered financial analyst"),
+    "gaap": ("gaap", "us gaap", "generally accepted accounting principles"),
+    "ifrs": ("ifrs",),
+    "netsuite": ("netsuite", "oracle netsuite"),
+    "quickbooks": ("quickbooks", "quickbooks online", "qbo"),
+    "sap": ("sap", "sap erp", "sap s/4hana"),
+
+    # ---- HR / Recruiting ----
+    "workday": ("workday", "workday hcm"),
+    "greenhouse": ("greenhouse", "greenhouse ats"),
+    "phr": ("phr", "professional in human resources"),
+    "sphr": ("sphr", "senior professional in human resources"),
+    "shrm-cp": ("shrm-cp", "shrm cp"),
+
+    # ---- Project Management ----
+    "pmp": ("pmp", "project management professional"),
+    "prince2": ("prince2",),
+    "scrum master": ("scrum master", "csm", "certified scrum master"),
+    "jira": ("jira", "atlassian jira"),
+
+    # ---- Legal ----
+    "jd": ("jd", "juris doctor", "juris doctorate"),
+    "bar admission": ("bar admission", "bar license", "state bar"),
+    "westlaw": ("westlaw",),
+    "lexisnexis": ("lexisnexis", "lexis nexis"),
+
+    # ---- Sales ----
+    "salesforce": ("salesforce", "salesforce crm", "sfdc"),
+    "hubspot": ("hubspot", "hubspot crm"),
+    "meddic": ("meddic", "meddpicc"),
+
+    # ---- Marketing ----
+    "google ads": ("google ads", "google adwords", "adwords"),
+    "meta ads": ("meta ads", "facebook ads", "fb ads"),
+    "google analytics": ("google analytics", "ga4"),
+    "seo": ("seo", "search engine optimization"),
+
+    # ---- Hospitality / Food ----
+    "servsafe": ("servsafe", "serv safe"),
+    "haccp": ("haccp",),
+
+    # ---- Trades / Safety ----
+    "osha 30": ("osha 30", "osha 30-hour"),
+    "osha 10": ("osha 10", "osha 10-hour"),
+    "nec code": ("nec code", "national electrical code"),
+
+    # ---- Education ----
+    "common core": ("common core", "ccss"),
+    "iep": ("iep", "individualized education program"),
 }
 
 

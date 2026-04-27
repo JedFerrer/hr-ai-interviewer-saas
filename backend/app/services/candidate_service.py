@@ -88,6 +88,17 @@ async def update_candidate_status(
     """
     candidate = await get_candidate_detail(db, candidate_id, company_id)
     candidate.status = new_status
+    # Mirror final HR decisions onto the calibration audit log so we can
+    # compare against the algorithmic recommendation.
+    if new_status in {"shortlisted", "rejected"}:
+        from app.services.screening_outcome_service import record_hr_decision
+
+        await record_hr_decision(
+            db,
+            candidate_id=candidate_id,
+            decision=("shortlisted" if new_status == "shortlisted"
+                      else "rejected_after_review"),
+        )
     await db.commit()
     await db.refresh(candidate)
     return candidate
@@ -201,6 +212,15 @@ async def approve_pre_screen(
         client=client,
     )
 
+    # HR overrode the algorithm and approved a `review_pending` candidate
+    # → record as ground truth for calibration.
+    from app.services.screening_outcome_service import record_hr_decision
+
+    await record_hr_decision(
+        db, candidate_id=candidate_id, decision="invited"
+    )
+    await db.commit()
+
     # Refresh to pull in any committed changes from _build_interview_and_invite.
     await db.refresh(candidate)
     return candidate
@@ -222,6 +242,20 @@ async def reject_pre_screen(
             ),
         )
 
+    # Tag the calibration audit log FIRST: a pre-screen rejection means HR
+    # never reviewed the candidate's interview. We label it
+    # "rejected_by_hr" before update_candidate_status (which would
+    # otherwise tag it as "rejected_after_review"). Since
+    # `record_hr_decision` is a no-op when `hr_decision` is already set,
+    # the subsequent update_candidate_status call won't overwrite this.
+    from app.services.screening_outcome_service import record_hr_decision
+
+    await record_hr_decision(
+        db,
+        candidate_id=candidate_id,
+        decision="rejected_by_hr",
+        note="Rejected at pre-screen stage (no interview).",
+    )
     return await update_candidate_status(db, candidate_id, company_id, "rejected")
 
 

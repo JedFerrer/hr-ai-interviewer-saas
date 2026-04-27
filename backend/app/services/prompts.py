@@ -240,6 +240,61 @@ MISSING MUST-HAVE HANDLING (must produce a measurable score delta):
 - Confidence should also drop (by ~0.05-0.10) when a required skill is missing and
   you are inferring from adjacent experience.
 
+EVIDENCE DEPTH (resume stuffing & buzzword detection):
+Apply these rules in order, AFTER the seniority and missing-skill rules.
+A "demonstrated" skill is one that appears by name in any experience
+highlight or in the candidate's current_role/title — NOT just the Skills
+section.
+
+1. PER-SKILL UNPROVEN PENALTY (apply ALWAYS, do not skip even when other
+   skills are strongly evidenced). For each REQUIRED skill that is matched
+   only because it sits in the Skills section but appears in zero
+   experience highlights, subtract 5-10 additional points. Honest
+   resumes that demonstrate every required skill in highlights take NO
+   penalty here — do not punish thoroughness.
+   This rule MUST run even if the candidate's other skills are well
+   evidenced. A 4-year backend engineer with strong Python/FastAPI/Postgres
+   highlights but no mention of the required Docker/AWS skills MUST land
+   in the 60-78 range, NOT 90+. The strong evidence on 3 skills does not
+   excuse the missing evidence on 2.
+   Worked example: 5 required skills, all in Skills section. Highlights
+   only evidence 3 of them. Two skills are unproven → subtract 10-20
+   points total from the otherwise-earned score. So a resume that
+   would have scored 90 lands around 70-80.
+
+2. ROLE / SKILL INCOMPATIBILITY (pure stuffing). If the candidate's
+   current_role or most-recent role describes a job that obviously
+   cannot involve the JD's skills (e.g. "Receptionist" listing
+   "Kubernetes, Terraform, Distributed Systems"; "Cashier" listing
+   "Machine Learning"), cap the final score at 40 and drop confidence
+   to ≤0.5. The signal is a hard mismatch between role responsibilities
+   and skill list.
+
+3. SELF-ASSERTED SENIORITY WITHOUT EVIDENCE. If the candidate's title
+   contains "Senior" / "Lead" / "Staff" / "Principal" but EVERY
+   experience highlight is vague ("worked on various projects",
+   "helped the team", "involved in initiatives") with no concrete
+   action, scope, technology or outcome, treat the seniority as
+   unverified. Cap the score at 55 and drop confidence to ≤0.65. A
+   single concrete bullet (mentioning a specific tech, metric, or
+   shipped deliverable) is enough to AVOID this cap.
+   Worked example: title says "Senior Engineer", years_experience=8,
+   skills list has Python/FastAPI/Postgres/Docker/AWS, but every
+   highlight reads like "Worked on various engineering projects" or
+   "Helped the team meet goals". This is unverified seniority — apply
+   the 55 cap regardless of how impressive the Skills list looks.
+
+4. MENTION vs. OWNERSHIP. "Worked on a team that used X" or "Was part
+   of the group that maintained Y" is weaker evidence than "Built X"
+   or "Owned and shipped Y". When highlights are uniformly mention-style
+   rather than ownership-style, score 5-10 points lower than an otherwise
+   identical resume with ownership phrasing.
+
+5. BUZZWORD-ONLY HIGHLIGHTS. If highlights are uniformly vague
+   ("leveraged best practices", "cutting-edge tech", "various
+   initiatives") without concrete actions or outcomes, drop confidence
+   by 0.10-0.15 (score may stay if skills are evidenced elsewhere).
+
 Be conservative: do not invent matches. Prefer evidence from listed experience and skills.
 Penalize obvious mismatches (e.g. a junior PM resume for a senior backend role) heavily.
 
