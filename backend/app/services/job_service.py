@@ -39,7 +39,7 @@ async def create_job(db: AsyncSession, user: User, data: JobCreateRequest) -> Jo
         auto_send_status_emails=(
             data.auto_send_status_emails if data.auto_send_status_emails is not None else True
         ),
-        screening_mode=data.screening_mode or "auto_all",
+        screening_mode=data.screening_mode or "hybrid_threshold",
         auto_invite_threshold=(
             data.auto_invite_threshold if data.auto_invite_threshold is not None else 75
         ),

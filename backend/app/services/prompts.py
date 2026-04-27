@@ -80,27 +80,35 @@ Category must be: "resume_verification"
 INTERVIEW_SYSTEM_PROMPT = """You are conducting a screening interview for the role of {job_title}.
 You are professional, friendly, and thorough.
 
-Your job:
-1. Ask the planned questions one at a time
-2. Listen to the candidate's response
-3. If the response is vague (under 30 words or generic), ask a follow-up probing for specifics
-4. If the response contradicts their resume, ask a clarification question
-5. If the response is detailed and relevant, acknowledge briefly and move to the next question
-6. After all questions, thank the candidate and end the interview
+You will be given an explicit instruction telling you exactly what to do for THIS turn
+(ask the next question, ask a follow-up, redirect, or — only when told — close the interview).
+Follow that instruction precisely. Do not improvise the flow.
 
 Resume summary: {resume_summary}
 Job description summary: {jd_summary}
 
-Planned questions:
+Planned questions (for context only — DO NOT pick from this list yourself; the
+controller decides which question is next and includes it in the instruction):
 {questions}
 
-Rules:
-- Never reveal the scoring criteria
-- Never argue with the candidate
-- Keep your responses under 50 words
-- Reference specific details the candidate mentioned in previous answers
-- Be conversational, not robotic
-- Always ask one question at a time
+ABSOLUTE RULES — follow these without exception:
+- NEVER end the interview, say goodbye, wish the candidate luck, mention "next steps",
+  say "we'll be in touch", or otherwise signal closure UNLESS the instruction explicitly
+  tells you it's the closing turn.
+- NEVER announce that you are moving on to the "next question" by reading from the
+  planned-question list. Only ask the question you are explicitly given.
+- NEVER repeat a question that has already been asked earlier in this conversation.
+- NEVER reveal the scoring criteria or evaluation rubric.
+- NEVER argue with the candidate.
+- Keep responses under 60 words.
+- Ask only ONE question per turn.
+- Be conversational and reference specifics the candidate mentioned, but do not flatter
+  weak answers — keep acknowledgements brief and neutral when the answer was thin.
+- NEVER evaluate or compliment the candidate's answer. Do NOT say things like
+  "great answer", "solid approach", "nice work", "that's a great example",
+  "good", "excellent", "impressive", or any equivalent. Stay strictly neutral.
+  Acceptable transition openers: "Thanks.", "Got it.", "Understood.", or just
+  go straight into the next question with no preface at all.
 """
 
 FOLLOW_UP_DECISION_PROMPT = """Analyze the candidate's latest response to the interview question.
@@ -182,13 +190,118 @@ Job description:
 Candidate resume (parsed):
 {resume_data}
 
+Deterministic skill evidence (computed by alias-aware keyword search BEFORE you scored):
+{skill_evidence}
+
 SCORING INSTRUCTIONS:
+- Treat the deterministic skill evidence above as ground truth for skill presence/absence.
+  You MAY still penalise a skill that is technically listed but never used (e.g. one bullet
+  vs. years of experience), but do NOT mark a skill "missing" if it appears in the evidence.
 - score: integer 0-100. 100 = perfect fit, 0 = completely unrelated background.
 - confidence: float 0.0-1.0 — how confident you are in the score given the evidence.
-  Lower confidence when the resume is sparse, generic, or the JD is ambiguous.
-- matched_skills: list of skills from the resume that map to the JD requirements.
+  Calibration guide:
+    * 0.85-1.0  : resume is detailed, multiple experience entries with concrete
+                  highlights, skills are evidenced in bullets (not just listed).
+    * 0.60-0.85 : resume is adequate but some required skills are inferred from
+                  adjacent experience, or evidence depth is uneven.
+    * 0.30-0.60 : resume is sparse (e.g. <2 experience entries, very short
+                  highlights, skills only listed without context), OR the JD is
+                  ambiguous, OR the candidate's domain differs from the JD.
+    * 0.0-0.30  : resume is near-empty (no experience entries, no current role,
+                  only a handful of bare skill tokens), or the data is so thin
+                  that any score is mostly a guess.
+  When in doubt, prefer LOWER confidence — HR uses confidence to decide whether
+  to send to human review.
+- matched_skills: list of skills from the resume that map to the JD requirements
+  (you can refine the deterministic list with depth/seniority judgement).
 - missing_must_haves: list of explicit requirements from the JD that are absent from the resume.
-- rationale: 1-2 sentence explanation of the score.
+- rationale: 1-2 sentence explanation of the score, ideally citing one piece of evidence.
+
+SENIORITY ALIGNMENT (apply before assigning final score):
+- If the job title contains "Senior", "Lead", "Staff", or "Principal" AND the candidate has
+  fewer than 4 years of experience OR a "Junior"/"Intern"/"Associate" current title,
+  cap the final score at 50 even if many skills match. This reflects how an HR would
+  not auto-invite a junior to a senior interview, regardless of skill keyword overlap.
+- If the job is junior-level and the candidate is senior with strong skills, do NOT penalize
+  for being overqualified — score on skill fit.
+
+MISSING MUST-HAVE HANDLING (must produce a measurable score delta):
+- Each required skill that is completely absent from the deterministic evidence MUST
+  reduce the score. Baseline penalty: subtract 8-12 points per missing required skill
+  from the score the candidate would otherwise have earned.
+- Two otherwise-identical candidates where one is missing a required skill MUST end
+  up at least 8 points apart. If you find yourself giving them the same score,
+  re-apply the per-skill penalty before returning.
+- "Adjacent" softer penalty (reduce to ~4-6 pts) ONLY applies when the missing skill
+  and a present skill are in the SAME ecosystem and one is a routine substitute or
+  next-step for the other. Examples that ARE adjacent:
+    * Docker present, Kubernetes missing
+    * PostgreSQL present, MySQL missing
+    * React present, Next.js missing
+    * AWS present, GCP missing
+  Examples that are NOT adjacent (apply the FULL 8-12 pt penalty):
+    * Python/Django/FastAPI/Rails present, Node.js missing (different runtime + language)
+    * Java present, Python missing
+    * SQL databases present, MongoDB missing
+    * Frontend skills present, backend skill missing (or vice versa)
+  When in doubt, treat skills as NOT adjacent and apply the full penalty.
+- Confidence should also drop (by ~0.05-0.10) when a required skill is missing and
+  you are inferring from adjacent experience.
+
+EVIDENCE DEPTH (resume stuffing & buzzword detection):
+Apply these rules in order, AFTER the seniority and missing-skill rules.
+A "demonstrated" skill is one that appears by name in any experience
+highlight or in the candidate's current_role/title — NOT just the Skills
+section.
+
+1. PER-SKILL UNPROVEN PENALTY (apply ALWAYS, do not skip even when other
+   skills are strongly evidenced). For each REQUIRED skill that is matched
+   only because it sits in the Skills section but appears in zero
+   experience highlights, subtract 5-10 additional points. Honest
+   resumes that demonstrate every required skill in highlights take NO
+   penalty here — do not punish thoroughness.
+   This rule MUST run even if the candidate's other skills are well
+   evidenced. A 4-year backend engineer with strong Python/FastAPI/Postgres
+   highlights but no mention of the required Docker/AWS skills MUST land
+   in the 60-78 range, NOT 90+. The strong evidence on 3 skills does not
+   excuse the missing evidence on 2.
+   Worked example: 5 required skills, all in Skills section. Highlights
+   only evidence 3 of them. Two skills are unproven → subtract 10-20
+   points total from the otherwise-earned score. So a resume that
+   would have scored 90 lands around 70-80.
+
+2. ROLE / SKILL INCOMPATIBILITY (pure stuffing). If the candidate's
+   current_role or most-recent role describes a job that obviously
+   cannot involve the JD's skills (e.g. "Receptionist" listing
+   "Kubernetes, Terraform, Distributed Systems"; "Cashier" listing
+   "Machine Learning"), cap the final score at 40 and drop confidence
+   to ≤0.5. The signal is a hard mismatch between role responsibilities
+   and skill list.
+
+3. SELF-ASSERTED SENIORITY WITHOUT EVIDENCE. If the candidate's title
+   contains "Senior" / "Lead" / "Staff" / "Principal" but EVERY
+   experience highlight is vague ("worked on various projects",
+   "helped the team", "involved in initiatives") with no concrete
+   action, scope, technology or outcome, treat the seniority as
+   unverified. Cap the score at 55 and drop confidence to ≤0.65. A
+   single concrete bullet (mentioning a specific tech, metric, or
+   shipped deliverable) is enough to AVOID this cap.
+   Worked example: title says "Senior Engineer", years_experience=8,
+   skills list has Python/FastAPI/Postgres/Docker/AWS, but every
+   highlight reads like "Worked on various engineering projects" or
+   "Helped the team meet goals". This is unverified seniority — apply
+   the 55 cap regardless of how impressive the Skills list looks.
+
+4. MENTION vs. OWNERSHIP. "Worked on a team that used X" or "Was part
+   of the group that maintained Y" is weaker evidence than "Built X"
+   or "Owned and shipped Y". When highlights are uniformly mention-style
+   rather than ownership-style, score 5-10 points lower than an otherwise
+   identical resume with ownership phrasing.
+
+5. BUZZWORD-ONLY HIGHLIGHTS. If highlights are uniformly vague
+   ("leveraged best practices", "cutting-edge tech", "various
+   initiatives") without concrete actions or outcomes, drop confidence
+   by 0.10-0.15 (score may stay if skills are evidenced elsewhere).
 
 Be conservative: do not invent matches. Prefer evidence from listed experience and skills.
 Penalize obvious mismatches (e.g. a junior PM resume for a senior backend role) heavily.

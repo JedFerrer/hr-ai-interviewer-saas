@@ -116,13 +116,25 @@ export interface Candidate {
 }
 
 export interface ResumeParsedData {
-  name: string;
-  email: string;
-  years_experience: number;
-  current_role: string;
+  name: string | null;
+  email: string | null;
+  phone?: string | null;
+  years_experience: number | null;
+  current_role: string | null;
+  current_company?: string | null;
   skills: string[];
-  experience: { company: string; role: string; duration: string }[];
-  education: { institution: string; degree: string; year: number }[];
+  experience: {
+    company: string | null;
+    role: string | null;
+    duration: string | null;
+    highlights?: string[];
+  }[];
+  // `year` can be "2018", "2018-2022", "Expected 2026", etc. — keep flexible.
+  education: {
+    institution: string | null;
+    degree: string | null;
+    year: string | number | null;
+  }[];
   summary: string;
 }
 
@@ -177,6 +189,17 @@ export interface PreScreenSummary {
     matched_skills?: string[];
     missing_must_haves?: string[];
     rationale?: string;
+    /**
+     * Deterministic alias-aware skill match (Phase 2 / Item 8). Always
+     * present on freshly-scored candidates; legacy rows scored before
+     * Phase 2 won't have it.
+     */
+    deterministic_match?: {
+      matched_skills: string[];
+      missing_skills: string[];
+      recall: number;
+      evidence: Record<string, string>;
+    };
   } | null;
   pre_screened_at: string | null;
   invite_sent_at: string | null;

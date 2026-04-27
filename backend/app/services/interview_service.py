@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -42,7 +43,7 @@ from app.utils.storage import (
     validate_resume_file,
 )
 from app.utils.token_tracker import calculate_cost
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -52,12 +53,69 @@ CONTEXT_WINDOW_MESSAGES = 10
 # Thresholds for repetition / parroting detection
 _REPETITION_RATIO_THRESHOLD = 0.4  # if 40%+ of sentences are duplicates
 _PARROTING_OVERLAP_THRESHOLD = 0.5  # if 50%+ of answer words come from the question
+# Long-but-unique garbage detection (lorem-ipsum-style filler)
+_LOW_QUALITY_UNIQUE_TOKEN_RATIO = 0.55  # if unique-words/total > 0.55 AND no Q-keyword overlap
+_LOW_QUALITY_QUESTION_OVERLAP_MIN = 0.05  # answer must share >5% of its words with the question/topic
+# Phrases the interviewer LLM is NOT allowed to emit unless we explicitly told it to close.
+_PREMATURE_CLOSING_PATTERNS = [
+    r"\b(end|ending|conclude|concluding|wrap(?:ping)?\s+up|terminate|terminating)\s+(?:the\s+|this\s+|our\s+)?(?:interview|conversation|session|call)\b",
+    r"\bthank you for your time\b",
+    r"\bthanks? for (?:your time|joining|coming|chatting)\b",
+    r"\bbest of luck\b",
+    r"\bgood luck\b",
+    r"\bwe('| wi)ll be in touch\b",
+    r"\bwe('| wi)ll review\b",
+    r"\bnext steps?\b",
+    r"\bhave a (?:great|good|nice) (?:day|one|evening|afternoon)\b",
+    r"\bthat (?:was|concludes|wraps up) (?:our|the|my) (?:final |last )?question\b",
+]
+_PREMATURE_CLOSING_RE = re.compile("|".join(_PREMATURE_CLOSING_PATTERNS), re.IGNORECASE)
 
 LLM_MODEL = settings.active_llm_model
 
 # Strong references for fire-and-forget background tasks. Without this, the
 # event loop only holds a weak reference and tasks may be GC'd mid-execution.
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+# SQLite can only handle a single writer at a time. When a burst of /apply
+# calls fan out into background tasks that all try to write concurrently,
+# they hit `database is locked` mid-flush — past the point where a commit
+# retry can recover. Cap concurrency to keep the backend stable on SQLite.
+# (Set high enough that Postgres deployments aren't bottlenecked.)
+_BG_CONCURRENCY = int(os.environ.get("BG_PIPELINE_CONCURRENCY", "3"))
+_BG_SEMAPHORE = asyncio.Semaphore(_BG_CONCURRENCY)
+
+
+async def _commit_with_retry(db: AsyncSession, *, attempts: int = 4) -> None:
+    """Commit with backoff on transient SQLite lock errors.
+
+    Even with WAL + busy_timeout, bursts of concurrent background writes
+    can still hit `OperationalError: database is locked` once the timeout
+    is exhausted. Rather than failing the whole pipeline, back off briefly
+    and retry — this is safe because we hold no other resource.
+    """
+    delay = 0.5
+    for i in range(attempts):
+        try:
+            await db.commit()
+            return
+        except OperationalError as exc:
+            msg = str(exc).lower()
+            if "locked" not in msg and "busy" not in msg:
+                raise
+            if i == attempts - 1:
+                logger.error("Commit failed after %d retries: %s", attempts, exc)
+                raise
+            logger.warning(
+                "DB locked on commit (attempt %d/%d); backing off %.1fs",
+                i + 1, attempts, delay,
+            )
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            await asyncio.sleep(delay)
+            delay *= 2
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +242,17 @@ async def apply(
             status_code=status.HTTP_409_CONFLICT,
             detail="You have already applied for this position.",
         )
+    except OperationalError as exc:
+        # SQLite "database is locked" or transient PG issue. Surface as 503
+        # with Retry-After so the client (and load balancers) can back off
+        # rather than treating it as a real server bug.
+        await db.rollback()
+        logger.warning("apply: transient DB error for %s: %s", normalized, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service is busy, please retry in a few seconds.",
+            headers={"Retry-After": "5"},
+        ) from exc
     await db.refresh(candidate)
     audit(
         "candidate.applied",
@@ -211,7 +280,11 @@ async def process_application_background(
 
     Uses its own DB session (not the request session).
     """
-    async with async_session_factory() as db:
+    # Throttle concurrent pipelines to avoid SQLite write-lock storms.
+    # (Manual acquire/release so we don't have to re-indent the whole body.)
+    await _BG_SEMAPHORE.acquire()
+    try:
+      async with async_session_factory() as db:
         try:
             # Re-load candidate + job
             candidate = await db.get(Candidate, candidate_id)
@@ -249,7 +322,7 @@ async def process_application_background(
                 candidate.pre_screen_decision = "error"
                 candidate.pre_screen_reason = f"Resume could not be parsed: {exc}"
                 candidate.pre_screened_at = datetime.now(timezone.utc)
-                await db.commit()
+                await _commit_with_retry(db)
                 audit(
                     "candidate.resume_parse_failed",
                     candidate_id=candidate_id,
@@ -281,6 +354,10 @@ async def process_application_background(
                     "matched_skills": match["matched_skills"],
                     "missing_must_haves": match["missing_must_haves"],
                     "rationale": match["rationale"],
+                    # Phase 2 / Item 8: surface the deterministic skill
+                    # match alongside the LLM verdict so the UI can render
+                    # evidence chips without re-running the LLM.
+                    "deterministic_match": match["deterministic_match"],
                 }
                 total_pt += match["prompt_tokens"]
                 total_ct += match["completion_tokens"]
@@ -313,6 +390,23 @@ async def process_application_background(
             candidate.pre_screen_reason = outcome.reason
             candidate.pre_screened_at = datetime.now(timezone.utc)
 
+            # Append-only calibration log: every prediction is recorded so
+            # we can later compare against HR's ground-truth decision.
+            from app.services.screening_outcome_service import record_prediction
+
+            det_match = (match_breakdown or {}).get("deterministic_match") or {}
+            await record_prediction(
+                db=db,
+                candidate_id=candidate_id,
+                job_posting_id=job_id,
+                score=match_score,
+                confidence=match_confidence,
+                decision=outcome.decision,
+                matched_skills=det_match.get("matched_skills"),
+                missing_skills=det_match.get("missing_skills"),
+                deterministic_recall=det_match.get("recall"),
+            )
+
             audit(
                 "candidate.pre_screened",
                 candidate_id=candidate_id,
@@ -324,7 +418,7 @@ async def process_application_background(
             if outcome.decision != "auto_invite":
                 # Park the candidate; HR will approve/reject from the dashboard.
                 candidate.status = "review_pending"
-                await db.commit()
+                await _commit_with_retry(db)
                 logger.info(
                     "Candidate %s routed to %s (score=%s, mode=%s)",
                     candidate_id,
@@ -345,7 +439,7 @@ async def process_application_background(
                 running_ct=total_ct,
             )
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Background processing failed for candidate %s", candidate_id)
             # Mark candidate with error status using a fresh session (original may be broken)
             try:
@@ -353,9 +447,16 @@ async def process_application_background(
                     candidate = await err_db.get(Candidate, candidate_id)
                     if candidate:
                         candidate.status = "error"
-                        await err_db.commit()
+                        candidate.pre_screen_decision = "error"
+                        candidate.pre_screen_reason = (
+                            f"Background processing failed: {type(exc).__name__}: {exc}"
+                        )[:500]
+                        candidate.pre_screened_at = datetime.now(timezone.utc)
+                        await _commit_with_retry(err_db)
             except Exception:
                 logger.exception("Failed to revert candidate status")
+    finally:
+        _BG_SEMAPHORE.release()
 
 
 async def _build_interview_and_invite(
@@ -417,7 +518,7 @@ async def _build_interview_and_invite(
     candidate.status = "ready"
     candidate.interview_link_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
     candidate.invite_sent_at = datetime.now(timezone.utc)
-    await db.commit()
+    await _commit_with_retry(db)
 
     interview_link = f"{settings.app_url}/interview/session/{candidate.interview_token}"
     await send_interview_invite(
@@ -669,13 +770,13 @@ async def process_message(
         if is_garbage:
             # Regardless of word count, flag as irrelevant — do NOT reward garbage
             decision = {"quality": "irrelevant", "follow_up": "NEXT"}
-        elif word_count >= 50:
-            # Only short-circuit as "detailed" for genuinely unique long answers
-            decision = {"quality": "detailed", "follow_up": "NEXT"}
         elif is_minimal_answer:
-            # Very short/garbage answers — skip LLM eval, allow at most 1 follow-up
+            # Very short answers — skip LLM eval, allow at most 1 follow-up
             decision = {"quality": "vague", "follow_up": "NEXT"}
         else:
+            # Always run the evaluator for non-trivial answers. We used to
+            # short-circuit anything >=50 words as "detailed" but that let
+            # fluent-but-off-topic long answers bypass scrutiny.
             decision, eval_pt, eval_ct = await _evaluate_answer(
                 client, current_q, candidate_message, candidate.resume_parsed_data
             )
@@ -687,45 +788,86 @@ async def process_message(
         max_follow_ups = 1 if (is_minimal_answer or is_garbage) else MAX_FOLLOW_UPS_PER_QUESTION
 
         if decision["quality"] != "detailed" and follow_up_count < max_follow_ups:
+            # follow_up_count is the number of follow-ups ALREADY asked.
+            # Attempt 1 = first follow-up; Attempt 2 = second/last follow-up.
+            attempt_num = follow_up_count + 1
+            is_last_attempt = attempt_num >= max_follow_ups
+            attempt_hint = (
+                f" This is follow-up attempt {attempt_num} of {max_follow_ups}."
+                + (
+                    " The candidate was already vague on your previous follow-up — "
+                    "DO NOT re-ask the same thing in different words. Try a NARROWER, "
+                    "simpler angle (e.g., ask for just one concrete fact: a tool name, "
+                    "a number, a single example) so they can succeed at something small."
+                    if is_last_attempt and attempt_num > 1
+                    else ""
+                )
+            )
             if is_garbage:
                 ai_response, resp_pt, resp_ct = await _get_interviewer_response(
                     client, job, candidate, questions, transcript,
-                    "The candidate's response was repetitive, copy-pasted, or echoed the question back instead of giving a real answer. Briefly and politely let them know their answer didn't address the question and ask them to provide a genuine, specific response. Keep it under 30 words."
+                    "The candidate's response was repetitive, copy-pasted, or echoed the question back instead of giving a real answer. Briefly and politely let them know their answer didn't address the question and ask them to provide a genuine, specific response. Keep it under 30 words. Do NOT say goodbye or end the interview." + attempt_hint,
+                    is_closing=False,
                 )
             elif is_minimal_answer:
                 ai_response, resp_pt, resp_ct = await _get_interviewer_response(
                     client, job, candidate, questions, transcript,
-                    "The candidate gave a very brief or unclear answer. Gently encourage them to provide a real answer with specific details. Keep it short and supportive."
+                    "The candidate gave a very brief or unclear answer. Gently encourage them to provide a real answer with specific details. Keep it short and supportive. Do NOT say goodbye or end the interview." + attempt_hint,
+                    is_closing=False,
                 )
             elif decision["quality"] == "irrelevant":
                 ai_response, resp_pt, resp_ct = await _get_interviewer_response(
                     client, job, candidate, questions, transcript,
-                    f"The candidate's answer was off-topic and did not address the question. Politely redirect them to answer the actual question. Ask this follow-up: {decision['follow_up']}"
+                    f"The candidate's answer was off-topic and did not address the question. Politely redirect them to answer the actual question. Ask this follow-up: {decision['follow_up']}. Do NOT say goodbye or end the interview." + attempt_hint,
+                    is_closing=False,
                 )
             else:
                 ai_response, resp_pt, resp_ct = await _get_interviewer_response(
                     client, job, candidate, questions, transcript,
-                    f"The candidate's answer was {decision['quality']}. Ask this follow-up: {decision['follow_up']}"
+                    f"The candidate's answer was {decision['quality']}. Ask this follow-up: {decision['follow_up']}. Do NOT say goodbye or end the interview." + attempt_hint,
+                    is_closing=False,
                 )
         else:
             # Advance to next question
             current_idx += 1
             interview.current_question_index = current_idx
 
-            # Build a transition instruction that's honest about answer quality
-            was_poor = is_garbage or (follow_up_count > 0 and (is_minimal_answer or decision.get("quality") == "irrelevant"))
+            # Build a transition instruction that's honest about answer quality.
+            # "Poor" covers: garbage, OR any non-detailed answer that survived
+            # follow-ups (vague/irrelevant/minimal that we're advancing past
+            # because the candidate has burned their follow-up budget).
+            was_poor = (
+                is_garbage
+                or is_minimal_answer
+                or (follow_up_count > 0 and decision.get("quality") != "detailed")
+            )
             if current_idx < len(questions):
+                next_q_text = questions[current_idx]['question']
                 if was_poor:
-                    transition = f"The candidate was unable to provide a satisfactory answer. Do not compliment or acknowledge their answer. Simply move on and ask question #{current_idx + 1}: {questions[current_idx]['question']}"
+                    transition = (
+                        f"The candidate was unable to provide a satisfactory answer. "
+                        f"Do not compliment or acknowledge their answer. "
+                        f"Simply move on and ask EXACTLY this next question (do not paraphrase, do not pick a different one): \"{next_q_text}\". "
+                        f"Do NOT say goodbye or end the interview \u2014 there are still {len(questions) - current_idx} question(s) remaining."
+                    )
                 else:
-                    transition = f"Briefly acknowledge the answer and ask question #{current_idx + 1}: {questions[current_idx]['question']}"
+                    transition = (
+                        f"Use at most a 2-3 word neutral transition (e.g. 'Thanks.', 'Got it.', "
+                        f"or skip the preface entirely). NO praise words like 'great', 'solid', "
+                        f"'nice', 'excellent', 'impressive'. Then ask EXACTLY this next question "
+                        f"(do not paraphrase, do not pick a different one): \"{next_q_text}\". "
+                        f"Do NOT say goodbye or end the interview \u2014 there are still {len(questions) - current_idx} question(s) remaining."
+                    )
                 ai_response, resp_pt, resp_ct = await _get_interviewer_response(
-                    client, job, candidate, questions, transcript, transition
+                    client, job, candidate, questions, transcript, transition,
+                    is_closing=False,
+                    forced_question=next_q_text,
                 )
             else:
                 ai_response, resp_pt, resp_ct = await _get_interviewer_response(
                     client, job, candidate, questions, transcript,
-                    "This was the last question. Thank the candidate and wrap up the interview."
+                    "This was the last question. Thank the candidate briefly and wrap up the interview. You MAY say goodbye now.",
+                    is_closing=True,
                 )
 
         # Track response generation tokens
@@ -823,7 +965,19 @@ async def _evaluate_answer(client: AsyncOpenAI, question: dict, answer: str, res
         cleaned = cleaned[:-3]
     pt = response.usage.prompt_tokens if response.usage else 0
     ct = response.usage.completion_tokens if response.usage else 0
-    return json.loads(cleaned.strip()), pt, ct
+    # The LLM occasionally returns malformed JSON (truncation, escape errors,
+    # commentary). Treat that as a "move on" signal so the candidate's
+    # interview isn't broken mid-flight by a parse failure — a 500 here is
+    # far worse than skipping a follow-up.
+    try:
+        decision = json.loads(cleaned.strip())
+    except json.JSONDecodeError:
+        logger.warning(
+            "Follow-up decision JSON parse failed; defaulting to NEXT. raw=%r",
+            raw[:300],
+        )
+        decision = {"quality": "detailed", "follow_up": "NEXT"}
+    return decision, pt, ct
 
 
 async def _get_interviewer_response(
@@ -833,8 +987,16 @@ async def _get_interviewer_response(
     questions: list[dict],
     transcript: list[dict],
     instruction: str,
+    *,
+    is_closing: bool = False,
+    forced_question: str | None = None,
 ) -> tuple[str, int, int]:
-    """Get the interviewer's next statement from the LLM. Returns (response, prompt_tokens, completion_tokens)."""
+    """Get the interviewer's next statement from the LLM. Returns (response, prompt_tokens, completion_tokens).
+
+    `is_closing` — only when True is the LLM allowed to say goodbye / end the interview.
+    `forced_question` — if provided, the interviewer's reply MUST contain a question. If the
+      LLM omits the question text we splice it in to guarantee the candidate sees it.
+    """
     questions_text = "\n".join(
         f"{i+1}. [{q['category']}] {q['question']}" for i, q in enumerate(questions)
     )
@@ -862,7 +1024,38 @@ async def _get_interviewer_response(
     )
     pt = response.usage.prompt_tokens if response.usage else 0
     ct = response.usage.completion_tokens if response.usage else 0
-    return response.choices[0].message.content or "", pt, ct
+    raw = response.choices[0].message.content or ""
+    cleaned = _scrub_premature_closing(raw, is_closing=is_closing)
+    cleaned = _ensure_question_present(cleaned, forced_question)
+    return cleaned, pt, ct
+
+
+def _scrub_premature_closing(text: str, *, is_closing: bool) -> str:
+    """Strip goodbye / end-of-interview phrases from the LLM output unless this is
+    the official closing turn. Drops any sentence containing a banned phrase.
+    """
+    if is_closing or not text:
+        return text
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    kept = [s for s in sentences if not _PREMATURE_CLOSING_RE.search(s)]
+    if not kept:
+        # Whole reply was a goodbye \u2014 fall back to a neutral nudge so the candidate
+        # gets *something*; the caller will splice the forced question back in.
+        return "Let's continue."
+    return " ".join(kept).strip()
+
+
+def _ensure_question_present(text: str, forced_question: str | None) -> str:
+    """If we required a specific next question and the LLM dropped it, append it.
+    Detection is loose \u2014 we just check that the question's first 6 words appear.
+    """
+    if not forced_question:
+        return text
+    head = " ".join(forced_question.split()[:6]).lower()
+    if head and head in text.lower():
+        return text
+    sep = " " if text and not text.endswith((".", "!", "?")) else " "
+    return f"{text.rstrip()}{sep}{forced_question}".strip()
 
 
 def _count_follow_ups(transcript: list[dict], question_index: int) -> int:
@@ -933,7 +1126,40 @@ def _is_low_quality_long_answer(
                     if union and (len(intersection) / len(union)) > 0.7:
                         return True
 
+    # --- 4. Long-but-unique filler (lorem-ipsum, random word salads) ---
+    # If the answer is long and shares almost no vocabulary with the question it's
+    # supposed to address, it's filler regardless of how unique its words look.
+    all_words = msg_lower.split()
+    if len(all_words) >= 30 and last_q_text:
+        a_words_set = set(w for w in all_words if len(w) > 2)
+        q_words_set = set(w for w in last_q_text.split() if len(w) > 3 and w not in _STOPWORDS)
+        if a_words_set and q_words_set:
+            overlap_ratio = len(a_words_set & q_words_set) / len(a_words_set)
+            unique_ratio = len(a_words_set) / max(1, len(all_words))
+            # Catch heavily repeated filler (lorem ipsum, "yes yes yes ..."): a long
+            # answer with extreme token repetition AND no overlap with the question.
+            # Real human answers always sit well above unique_ratio=0.15 even when
+            # phrased loosely. We deliberately do NOT flag high-uniqueness "word
+            # salad" here — real, well-vocabulary'd answers also have low question
+            # overlap, so flagging on that alone false-positives.
+            if overlap_ratio < _LOW_QUALITY_QUESTION_OVERLAP_MIN and unique_ratio < 0.15:
+                return True
+
     return False
+
+
+# Common English stopwords \u2014 kept tiny on purpose, only used to strip filler from
+# the question when comparing vocabulary to the answer.
+_STOPWORDS = {
+    "the", "a", "an", "and", "or", "but", "if", "of", "to", "in", "on", "at", "for",
+    "with", "that", "this", "those", "these", "is", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "can", "could", "would",
+    "should", "will", "shall", "may", "might", "must", "about", "into", "from",
+    "your", "you", "my", "me", "we", "us", "our", "how", "what", "why", "when",
+    "which", "who", "whom", "there", "here", "some", "any", "all", "more", "most",
+    "such", "please", "tell", "describe", "walk", "explain", "share", "give",
+    "example", "specific", "specifics", "detail", "details", "like", "role",
+}
 
 
 # ---------------------------------------------------------------------------
