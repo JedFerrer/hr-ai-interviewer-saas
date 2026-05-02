@@ -83,22 +83,40 @@ export default function JobDetailPage() {
     candidateEmail: string | null;
     kind: "approve_pre_screen" | "reject_pre_screen";
   } | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const PAGE_SIZE = 50;
 
   const fetchCandidates = useCallback(
-    (key: SortKey, order: SortOrder) =>
-      jobsApi.candidates(jobId, `sort=${key}&order=${order}`),
+    (key: SortKey, order: SortOrder, offset = 0) =>
+      jobsApi.candidates(jobId, { sort: key, order, limit: PAGE_SIZE, offset }),
     [jobId],
   );
 
   useEffect(() => {
-    Promise.all([jobsApi.get(jobId), fetchCandidates(sortKey, sortOrder)])
+    Promise.all([jobsApi.get(jobId), fetchCandidates(sortKey, sortOrder, 0)])
       .then(([jobRes, candRes]) => {
         setJob(jobRes.job);
         setCandidateList(candRes.candidates);
+        setTotalCount(candRes.total);
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
   }, [jobId, fetchCandidates, sortKey, sortOrder]);
+
+  const loadMore = async () => {
+    setIsLoadingMore(true);
+    try {
+      const res = await fetchCandidates(sortKey, sortOrder, candidateList.length);
+      setCandidateList((prev) => [...prev, ...res.candidates]);
+      setTotalCount(res.total);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load more");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   // Trim selection when the underlying list changes (e.g. status filter
   // hides a previously-selected row) so we never have a stale selection.
@@ -281,7 +299,7 @@ export default function JobDetailPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start gap-3">
-        <Link href="/dashboard">
+        <Link href="/dashboard/jobs">
           <Button variant="ghost" size="icon" className="shrink-0 mt-0.5">
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -424,7 +442,7 @@ export default function JobDetailPage() {
         <Card>
           <CardContent className="py-4 text-center">
             <Users className="mx-auto mb-1 hidden sm:block h-5 w-5 text-muted-foreground" />
-            <p className="text-2xl font-bold">{job.candidate_count ?? 0}</p>
+            <p className="text-2xl font-bold">{totalCount}</p>
             <p className="text-xs text-muted-foreground">
               <span className="sm:hidden">Total<br />Candidates</span>
               <span className="hidden sm:inline">Total Candidates</span>
@@ -435,9 +453,12 @@ export default function JobDetailPage() {
           <CardContent className="py-4 text-center">
             <BarChart3 className="mx-auto mb-1 hidden sm:block h-5 w-5 text-muted-foreground" />
             <p className="text-2xl font-bold">
-              {job.avg_score != null && job.avg_score !== 0
-                ? Number(job.avg_score).toFixed(1)
-                : "—"}
+              {(() => {
+                const scored = candidateList.filter((c) => c.overall_score != null);
+                if (scored.length === 0) return "—";
+                const avg = scored.reduce((sum, c) => sum + (c.overall_score ?? 0), 0) / scored.length;
+                return avg.toFixed(1);
+              })()}
             </p>
             <p className="text-xs text-muted-foreground">
               <span className="sm:hidden">Avg<br />Score</span>
@@ -645,6 +666,30 @@ export default function JobDetailPage() {
                   ))}
                 </tbody>
               </table>
+              {/* Load more — only when status filter is "all" so we don't
+                  promise more results than the current filter can yield. */}
+              {statusFilter === "all" && candidateList.length < totalCount && (
+                <div className="flex flex-col items-center gap-2 pt-6 pb-2">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {candidateList.length} of {totalCount}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadMore}
+                    disabled={isLoadingMore}
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        Loading…
+                      </>
+                    ) : (
+                      `Load ${Math.min(PAGE_SIZE, totalCount - candidateList.length)} more`
+                    )}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
