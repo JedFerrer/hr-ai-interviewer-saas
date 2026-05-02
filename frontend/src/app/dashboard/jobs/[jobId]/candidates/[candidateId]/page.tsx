@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
@@ -15,6 +15,9 @@ import {
   FileText,
   BarChart3,
   Download,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 import { ApiError, candidates as candidatesApi, API_URL } from "@/lib/api";
@@ -476,7 +479,7 @@ function EvaluationTab({ candidate }: { candidate: CandidateDetail }) {
           <CardTitle className="text-base">Overall Score</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center gap-6">
-          <div className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-primary">
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-primary">
             <span className="text-3xl font-bold">
               {evaluation.overall_score != null
                 ? Number(evaluation.overall_score).toFixed(1)
@@ -598,31 +601,22 @@ function TranscriptTab({ candidate }: { candidate: CandidateDetail }) {
   }
 
   return (
-    <Card className="flex flex-col overflow-hidden" style={{ maxHeight: "calc(100vh - 280px)" }}>
-      <CardContent className="space-y-4 py-6 overflow-y-auto">
+    <Card>
+      <CardContent className="space-y-6 py-6">
         {transcript.map((msg, i) => (
           <div
             key={i}
             className={`flex ${msg.role === "candidate" ? "justify-end" : "justify-start"}`}
           >
-            <div
-              className={`max-w-[75%] rounded-lg px-4 py-3 text-sm ${
-                msg.role === "candidate"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              }`}
-            >
-              <p className="whitespace-pre-wrap">{msg.content}</p>
-              <p
-                className={`mt-1 text-xs ${
-                  msg.role === "candidate"
-                    ? "text-primary-foreground/70"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {msg.timestamp}
+            {msg.role === "candidate" ? (
+              <div className="max-w-[75%] rounded-3xl bg-muted px-4 py-3 text-sm">
+                <p className="whitespace-pre-wrap">{msg.content}</p>
+              </div>
+            ) : (
+              <p className="max-w-[80%] text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                {msg.content}
               </p>
-            </div>
+            )}
           </div>
         ))}
       </CardContent>
@@ -842,6 +836,9 @@ function PreScreenCard({
   summary: PreScreenSummary;
   candidateStatus: CandidateDetail["status"];
 }) {
+  const isTerminal = ["completed", "shortlisted", "rejected"].includes(candidateStatus);
+  const [expanded, setExpanded] = useState(!isTerminal);
+
   const score = summary.score;
   const confidence = summary.confidence;
   const matched = summary.breakdown?.matched_skills ?? [];
@@ -861,7 +858,10 @@ function PreScreenCard({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+      <CardHeader
+        className="flex flex-row items-start justify-between gap-3 space-y-0 cursor-pointer select-none"
+        onClick={() => setExpanded((v) => !v)}
+      >
         <div>
           <CardTitle className="text-base">Resume pre-screen</CardTitle>
           {summary.reason && (
@@ -870,90 +870,103 @@ function PreScreenCard({
             </p>
           )}
         </div>
-        {showDecisionBadge && summary.decision && (
-          <Badge
-            variant="secondary"
-            className={PRE_SCREEN_DECISION_STYLES[summary.decision] ?? ""}
-          >
-            {PRE_SCREEN_DECISION_LABELS[summary.decision] ?? summary.decision}
-          </Badge>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center gap-6">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
-              Match score
-            </p>
-            <p className={`text-3xl font-bold ${scoreColorClass}`}>
-              {score != null ? `${score}/100` : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
-              Confidence
-            </p>
-            <p className="text-3xl font-bold">
-              {confidence != null ? confidence.toFixed(2) : "—"}
-            </p>
-          </div>
+        <div className="flex items-center gap-2">
+          {showDecisionBadge && summary.decision && (
+            <Badge
+              variant="secondary"
+              className={PRE_SCREEN_DECISION_STYLES[summary.decision] ?? ""}
+            >
+              {PRE_SCREEN_DECISION_LABELS[summary.decision] ?? summary.decision}
+            </Badge>
+          )}
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+          )}
         </div>
+      </CardHeader>
 
-        {matched.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Matched skills
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {matched.map((skill) => (
-                <Badge key={skill} variant="secondary">
-                  {skill}
-                </Badge>
-              ))}
+      {expanded && (
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-6">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Match score
+              </p>
+              <p className={`text-3xl font-bold ${scoreColorClass}`}>
+                {score != null ? `${score}/100` : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Confidence
+              </p>
+              <p className="text-3xl font-bold">
+                {confidence != null ? confidence.toFixed(2) : "—"}
+              </p>
             </div>
           </div>
-        )}
 
-        {missing.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Missing must-haves
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {missing.map((skill) => (
-                <Badge
-                  key={skill}
-                  variant="secondary"
-                  className="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"
-                >
-                  {skill}
-                </Badge>
-              ))}
+          {matched.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Matched skills
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {matched.map((skill) => (
+                  <Badge key={skill} variant="secondary">
+                    {skill}
+                  </Badge>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {rationale && (
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Rationale
-            </p>
-            <p className="text-sm leading-relaxed">{rationale}</p>
-          </div>
-        )}
-      </CardContent>
+          {missing.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Missing must-haves
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {missing.map((skill) => (
+                  <Badge
+                    key={skill}
+                    variant="secondary"
+                    className="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"
+                  >
+                    {skill}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {rationale && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Rationale
+              </p>
+              <p className="text-sm leading-relaxed">{rationale}</p>
+            </div>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
 
 /* ── Notify candidate panel ──────────────────────────────────
- * Shows the most recent email we sent to the candidate (kind +
- * timestamp) and exposes a dialog for HR to dispatch a new
- * notification. The backend enforces a conflict guard: trying to
- * send a shortlist email after a previous reject (or vice versa)
- * returns 409, which we surface as a confirmation modal asking
- * HR to either send a status_correction first or force the new
- * email through.
+ * Shows the most recent email we sent to the candidate and lets HR
+ * explicitly dispatch a new notification. Two layers of protection:
+ *  1. Pre-send: inline amber warning when the chosen kind contradicts
+ *     the last email sent (visible before the user clicks Send).
+ *  2. Post-confirm: 10-second undo window via a loading toast — the
+ *     actual API call only fires after the window expires so HR can
+ *     still cancel without spamming the candidate.
+ * A 409 conflict (e.g. shortlist sent after reject) can appear during
+ * the API call and re-opens the conflict confirmation dialog even after
+ * the main dialog has been closed.
  */
 
 const NOTIFICATION_KIND_LABEL: Record<EmailTemplateKind, string> = {
@@ -977,6 +990,7 @@ function NotifyCandidatePanel({
     null,
   );
   const [isSending, setIsSending] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Candidate-facing notifications are available only once the
   // candidate has completed the screening interview (evaluation exists).
@@ -986,11 +1000,24 @@ function NotifyCandidatePanel({
   const lastKind = candidate.last_notification_kind ?? null;
   const lastSentAt = candidate.last_notification_sent_at ?? null;
 
-  const send = async (force: boolean) => {
+  // Amber indicator in the card header: status changed since last email.
+  const hasStatusNotifMismatch =
+    lastKind !== null &&
+    ((candidate.status === "rejected" && lastKind === "shortlist") ||
+      (candidate.status === "shortlisted" && lastKind === "reject"));
+
+  // Inline warning inside the dialog: chosen kind would contradict last email.
+  const hasDialogConflict =
+    lastKind !== null &&
+    ((lastKind === "shortlist" && kind === "reject") ||
+      (lastKind === "reject" && kind === "shortlist"));
+
+  // Actual API dispatch — called after the undo window expires.
+  const dispatchSend = async (kindToSend: EmailTemplateKind, force: boolean) => {
     setIsSending(true);
     try {
       const result = await candidatesApi.sendNotification(candidate.id, {
-        kind,
+        kind: kindToSend,
         force,
       });
       onNotified({
@@ -999,15 +1026,11 @@ function NotifyCandidatePanel({
       });
       toast.success(
         result.sent
-          ? `${NOTIFICATION_KIND_LABEL[kind]} email sent`
+          ? `${NOTIFICATION_KIND_LABEL[kindToSend]} email sent`
           : "Email skipped (recently sent)",
       );
       setConflict(null);
-      setOpen(false);
     } catch (err) {
-      // The backend signals a contradictory-email guard via 409 +
-      // `code: "notification_conflict"`. Surface a confirmation step
-      // rather than a raw error toast.
       if (
         err instanceof ApiError &&
         err.status === 409 &&
@@ -1015,6 +1038,7 @@ function NotifyCandidatePanel({
         typeof err.detail === "object" &&
         (err.detail as { code?: string }).code === "notification_conflict"
       ) {
+        // Re-open the conflict dialog even though the main dialog is closed.
         setConflict(err.detail as NotificationConflictDetail);
         return;
       }
@@ -1022,6 +1046,37 @@ function NotifyCandidatePanel({
     } finally {
       setIsSending(false);
     }
+  };
+
+  // Close dialogs and start the 10-second undo window before dispatching.
+  const send = (kindToSend: EmailTemplateKind, force: boolean) => {
+    setOpen(false);
+    setConflict(null);
+
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+    }
+
+    const label = NOTIFICATION_KIND_LABEL[kindToSend];
+    const toastId = toast.loading(`${label} email queued`, {
+      duration: Infinity,
+      description: "10 seconds to undo",
+      cancel: {
+        label: "Undo",
+        onClick: () => {
+          if (undoTimerRef.current) {
+            clearTimeout(undoTimerRef.current);
+            undoTimerRef.current = null;
+          }
+        },
+      },
+    });
+
+    undoTimerRef.current = setTimeout(async () => {
+      undoTimerRef.current = null;
+      toast.dismiss(toastId);
+      await dispatchSend(kindToSend, force);
+    }, 10000);
   };
 
   return (
@@ -1042,6 +1097,13 @@ function NotifyCandidatePanel({
               <>No emails sent to this candidate yet.</>
             )}
           </p>
+          {hasStatusNotifMismatch && (
+            <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Status changed since last notification — candidate may need an
+              update.
+            </p>
+          )}
         </div>
         <Button
           size="sm"
@@ -1066,6 +1128,22 @@ function NotifyCandidatePanel({
               candidate&apos;s internal status is unchanged by this action.
             </DialogDescription>
           </DialogHeader>
+
+          {hasDialogConflict && (
+            <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                A <strong>{NOTIFICATION_KIND_LABEL[lastKind!]}</strong> email
+                was previously sent
+                {lastSentAt && (
+                  <> on {new Date(lastSentAt).toLocaleString()}</>
+                )}
+                . Sending a <strong>{NOTIFICATION_KIND_LABEL[kind]}</strong>{" "}
+                now may confuse the candidate — consider a correction email
+                first.
+              </span>
+            </div>
+          )}
 
           <div className="space-y-2 py-2">
             {(
@@ -1112,8 +1190,8 @@ function NotifyCandidatePanel({
             >
               Cancel
             </Button>
-            <Button disabled={isSending} onClick={() => send(false)}>
-              {isSending ? "Sending…" : "Send email"}
+            <Button disabled={isSending} onClick={() => send(kind, false)}>
+              Send email
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1154,14 +1232,7 @@ function NotifyCandidatePanel({
             <Button
               variant="outline"
               disabled={isSending}
-              onClick={async () => {
-                // Send a correction email and leave the dialog state so HR
-                // can immediately follow up with the original requested email.
-                const previousKind = kind;
-                setKind("status_correction");
-                await send(false);
-                setKind(previousKind);
-              }}
+              onClick={() => send("status_correction", false)}
             >
               Send correction first
             </Button>
@@ -1169,10 +1240,10 @@ function NotifyCandidatePanel({
               disabled={isSending}
               onClick={(e) => {
                 e.preventDefault();
-                send(true);
+                send(kind, true);
               }}
             >
-              {isSending ? "Sending…" : "Send anyway"}
+              Send anyway
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
