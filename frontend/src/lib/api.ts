@@ -18,6 +18,11 @@ import type {
   MeResponse,
   RefreshResponse,
 } from "./types";
+import type {
+  AnalyticsOverview,
+  AnalyticsWindow,
+  JobAnalytics,
+} from "./types";
 
 // All API calls go through the Next.js rewrite proxy so the browser sees
 // them as same-origin. This lets the backend issue an HttpOnly session
@@ -264,10 +269,18 @@ export const jobs = {
     }),
   delete: (id: string) =>
     apiRequest<{ message: string }>(`/jobs/${id}`, { method: "DELETE" }),
-  candidates: (id: string, params?: string) =>
-    apiRequest<{ candidates: Candidate[] }>(
-      `/jobs/${id}/candidates${params ? `?${params}` : ""}`,
-    ),
+  candidates: (
+    id: string,
+    opts: { limit?: number; offset?: number; sort?: string; order?: string } = {},
+  ) => {
+    const { limit = 50, offset = 0, sort, order } = opts;
+    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (sort) qs.set("sort", sort);
+    if (order) qs.set("order", order);
+    return apiRequest<{ candidates: Candidate[]; total: number }>(
+      `/jobs/${id}/candidates?${qs.toString()}`,
+    );
+  },
 };
 
 // Candidates
@@ -391,5 +404,19 @@ export const interview = {
   status: (token: string) =>
     apiRequest<{ status: string; progress: string }>(
       `/interview/${token}/status`,
+    ),
+};
+
+// Dashboard analytics. Single endpoint that replaces the old N+1
+// pattern (jobs.list → candidates per job) the dashboard used to do
+// client-side. See `plans/DASHBOARD_METRICS.md` for definitions.
+export const analytics = {
+  overview: (window: AnalyticsWindow = "30d") =>
+    apiRequest<AnalyticsOverview>(
+      `/analytics/overview?window=${encodeURIComponent(window)}`,
+    ),
+  job: (jobId: string, window: AnalyticsWindow = "30d") =>
+    apiRequest<JobAnalytics>(
+      `/analytics/jobs/${encodeURIComponent(jobId)}?window=${encodeURIComponent(window)}`,
     ),
 };

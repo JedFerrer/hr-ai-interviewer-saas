@@ -39,6 +39,7 @@ class SessionLandingResponse(BaseModel):
     candidate_name: str
     total_questions: int
     status: str
+    current_question_index: int = 0  # Populated for in_progress sessions so the frontend can restore progress on refresh
 
 
 class SessionStartResponse(BaseModel):

@@ -578,6 +578,7 @@ async def get_session_landing(
         "candidate_name": candidate.name or "",
         "total_questions": total_q,
         "status": candidate.status,
+        "current_question_index": interview.current_question_index if interview else 0,
     }
 
 

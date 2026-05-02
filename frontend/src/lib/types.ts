@@ -320,3 +320,111 @@ export interface NotificationConflictDetail {
   requested_kind: EmailTemplateKind;
   last_sent_at: string | null;
 }
+
+// === Dashboard analytics (mirror of plans/DASHBOARD_METRICS.md) ===
+export type AnalyticsWindow = "7d" | "30d" | "90d" | "all";
+
+export interface AnalyticsKPIs {
+  active_jobs: number;
+  applications: number;
+  pending_review: number;
+  /** 0..1 ratio. Null when there were no invites in the window. */
+  completion_rate: number | null;
+  /** USD per completed interview. Null when no interviews completed. */
+  avg_cost_per_interview_usd: number | null;
+  completed_awaiting_decision: number;
+}
+
+export interface AnalyticsFunnel {
+  applied: number;
+  under_review: number;
+  invited: number;
+  started: number;
+  completed: number;
+  shortlisted: number;
+  rejected: number;
+}
+
+export interface AnalyticsActionItem {
+  candidate_id: string;
+  job_id: string;
+  name: string | null;
+  email: string | null;
+  job_title: string;
+  since: string | null;
+}
+
+export interface AnalyticsActionBucket {
+  count: number;
+  items: AnalyticsActionItem[];
+}
+
+export interface AnalyticsActionNeeded {
+  pending_review: AnalyticsActionBucket;
+  awaiting_decision: AnalyticsActionBucket;
+  stalled_invites: AnalyticsActionBucket;
+}
+
+export interface AnalyticsJobHealthRow {
+  id: string;
+  title: string;
+  status: "active" | "paused";
+  candidate_count: number;
+  pending_review: number;
+  completion_rate: number | null;
+  avg_score: number | null;
+  avg_cost: number | null;
+  median_time_to_complete_minutes: number | null;
+}
+
+export interface AnalyticsTrendPoint {
+  /** UTC date in YYYY-MM-DD. Zero-filled for days with no activity. */
+  date: string;
+  applications: number;
+  completed: number;
+}
+
+export interface AnalyticsCalibration {
+  /** Number of `auto_invite` predictions with HR ground truth. */
+  sample_size: number;
+  /** Below this `agreement_rate` is null and UI should hide the headline. */
+  min_sample: number;
+  agreement_rate: number | null;
+  auto_invite_n: number;
+  auto_invite_agreed: number;
+  total_predictions: number;
+}
+
+export interface AnalyticsOverview {
+  window: AnalyticsWindow;
+  /** ISO timestamp; null when window === "all". */
+  window_start: string | null;
+  generated_at: string;
+  kpis: AnalyticsKPIs;
+  funnel: AnalyticsFunnel;
+  action_needed: AnalyticsActionNeeded;
+  jobs: AnalyticsJobHealthRow[];
+  trends: AnalyticsTrendPoint[];
+  calibration: AnalyticsCalibration;
+}
+
+export interface AnalyticsHistogramBucket {
+  lo: number;
+  hi: number;
+  label: string;
+  count: number;
+}
+
+export interface JobAnalytics {
+  job_id: string;
+  job_title: string;
+  window: AnalyticsWindow;
+  window_start: string | null;
+  generated_at: string;
+  funnel: AnalyticsFunnel;
+  score_histogram: AnalyticsHistogramBucket[];
+  decision_breakdown: Record<string, number>;
+  avg_score: number | null;
+  avg_cost: number | null;
+  completion_rate: number | null;
+}
