@@ -20,6 +20,7 @@ from app.models.company import Company
 from app.models.evaluation import EvaluationRecord
 from app.models.interview import Interview
 from app.models.job_posting import JobPosting
+from app.models.screening_outcome import ScreeningOutcome
 from app.models.user import User
 from app.utils.security import hash_password
 
@@ -439,6 +440,68 @@ EVALUATIONS = {
 
 
 # ---------------------------------------------------------------------------
+# Extra candidates for AI calibration demo data
+#
+# Each tuple: (job_idx, name, email, score, confidence, decision, hr_decision)
+# decision:    "auto_invite" | "review" | "reject"
+# hr_decision: "invited" | "shortlisted" | "rejected_by_hr" | None (pending)
+#
+# We need >= 20 auto_invite rows with hr_decision set for the calibration
+# rate to render (see _CALIBRATION_MIN_SAMPLE = 20 in analytics_service.py).
+# ---------------------------------------------------------------------------
+CALIBRATION_CANDIDATES = [
+    # job_idx, name, email, score, confidence, decision, hr_decision, days_ago
+    # -- Strong auto-invites where HR agreed (invited) --
+    (0, "Ethan Brooks",    "ethan.b@gmail.com",    8.7, 0.91, "auto_invite", "invited",          12),
+    (0, "Isabella Torres", "bella.t@gmail.com",    8.4, 0.88, "auto_invite", "invited",          11),
+    (0, "Noah Williams",   "noah.w@outlook.com",   8.9, 0.93, "auto_invite", "invited",          10),
+    (0, "Ava Johnson",     "ava.j@protonmail.com", 8.1, 0.85, "auto_invite", "invited",           9),
+    (0, "Luca Ferrari",    "luca.f@gmail.com",     8.6, 0.90, "auto_invite", "invited",           8),
+    (1, "Mia Nguyen",      "mia.n@gmail.com",      8.3, 0.87, "auto_invite", "invited",          14),
+    (1, "James Clark",     "james.c@outlook.com",  8.8, 0.92, "auto_invite", "invited",          13),
+    (1, "Sophia Lee",      "sophia.l@gmail.com",   7.9, 0.83, "auto_invite", "invited",          12),
+    (1, "Oliver Martin",   "oliver.m@gmail.com",   8.2, 0.86, "auto_invite", "invited",          11),
+    (2, "Emma Green",      "emma.g@gmail.com",     8.5, 0.89, "auto_invite", "invited",          10),
+    (2, "William Brown",   "will.b@gmail.com",     8.0, 0.84, "auto_invite", "invited",           9),
+    (2, "Charlotte White", "charlie.w@gmail.com",  8.7, 0.91, "auto_invite", "invited",           8),
+    (0, "Benjamin Hall",   "ben.h@outlook.com",    8.3, 0.87, "auto_invite", "invited",           7),
+    (0, "Amelia Young",    "amelia.y@gmail.com",   8.6, 0.90, "auto_invite", "invited",           6),
+    (0, "Lucas King",      "lucas.k@gmail.com",    7.8, 0.82, "auto_invite", "invited",           5),
+    # -- Auto-invites where HR also shortlisted (strong agreement) --
+    (0, "Harper Scott",    "harper.s@gmail.com",   9.1, 0.95, "auto_invite", "shortlisted",      20),
+    (1, "Evelyn Adams",    "evelyn.a@gmail.com",   9.0, 0.94, "auto_invite", "shortlisted",      18),
+    (2, "Henry Baker",     "henry.b@gmail.com",    8.8, 0.92, "auto_invite", "shortlisted",      16),
+    (0, "Abigail Nelson",  "abigail.n@gmail.com",  9.2, 0.96, "auto_invite", "shortlisted",      15),
+    (0, "Alexander Carter","alex.c2@gmail.com",    8.9, 0.93, "auto_invite", "shortlisted",      14),
+    (1, "Ella Mitchell",   "ella.m@gmail.com",     9.1, 0.95, "auto_invite", "shortlisted",      13),
+    (1, "Michael Perez",   "michael.p@gmail.com",  8.7, 0.90, "auto_invite", "shortlisted",      11),
+    # -- Auto-invites where HR overrode / rejected (disagreements) --
+    (0, "Jackson Roberts", "jackson.r@gmail.com",  7.5, 0.78, "auto_invite", "rejected_by_hr",  22),
+    (2, "Scarlett Turner",  "scarlett.t@gmail.com", 7.2, 0.74, "auto_invite", "rejected_by_hr",  19),
+    (1, "Sebastian Phillips","seb.p@gmail.com",    7.6, 0.79, "auto_invite", "rejected_by_hr",  17),
+    (0, "Victoria Campbell","vic.c@gmail.com",     7.3, 0.76, "auto_invite", "rejected_by_hr",  16),
+    # -- HR-review decisions (manual queue) --
+    (0, "Mason Evans",     "mason.e@gmail.com",    6.4, 0.71, "review",      "invited",          10),
+    (1, "Luna Edwards",    "luna.e@gmail.com",     6.8, 0.73, "review",      "rejected_by_hr",    9),
+    (2, "Logan Collins",   "logan.c@gmail.com",    6.1, 0.68, "review",      None,                7),
+    # -- Auto-rejects --
+    (0, "Aiden Stewart",   "aiden.s@gmail.com",    3.2, 0.88, "reject",      None,                8),
+    (1, "Grace Morris",    "grace.m@gmail.com",    2.9, 0.91, "reject",      None,                6),
+]
+
+# Stalled invite candidates: invited > 48h ago, never started the interview
+# Tuple: (job_idx, name, email, invite_days_ago)
+STALLED_CANDIDATES = [
+    (0, "Tyler Hughes",   "tyler.h@gmail.com",   5),
+    (0, "Nora Flores",    "nora.f@gmail.com",    7),
+    (1, "Caleb Washington","caleb.w@gmail.com",  4),
+    (1, "Penelope Rivera","penelope.r@gmail.com",6),
+    (2, "Zachary Coleman","zach.c@gmail.com",    3),
+    (3, "Stella Jenkins", "stella.j@gmail.com",  9),
+]
+
+
+# ---------------------------------------------------------------------------
 # Seed logic
 # ---------------------------------------------------------------------------
 
@@ -661,6 +724,68 @@ async def seed() -> None:
                     await db.flush()
                     n_evaluations += 1
 
+        # ---- Calibration demo candidates + ScreeningOutcome rows --------
+        # These are extra "applied" candidates across company-0 jobs,
+        # each with a pre-screen prediction and an HR ground-truth decision
+        # so the calibration panel has enough data to show an agreement rate.
+        n_calibration = 0
+        for jidx, name, email, score, conf, decision, hr_decision, days_ago in CALIBRATION_CANDIDATES:
+            cand = Candidate(
+                job_posting_id=jobs[jidx].id,
+                name=name,
+                email=email,
+                normalized_email=email.lower(),
+                status="applied",
+                resume_parsed_data=None,
+                pre_screen_decision=decision,
+                pre_screened_at=_days_ago(days_ago),
+                resume_match_score=score,
+                resume_match_confidence=conf,
+            )
+            db.add(cand)
+            await db.flush()
+
+            hr_decision_at = _days_ago(days_ago - 1) if hr_decision else None
+            outcome = ScreeningOutcome(
+                candidate_id=cand.id,
+                job_posting_id=jobs[jidx].id,
+                score=score,
+                confidence=conf,
+                decision=decision,
+                deterministic_recall=0.0,
+                matched_skills=[],
+                missing_skills=[],
+                predicted_at=_days_ago(days_ago),
+                hr_decision=hr_decision,
+                hr_decision_at=hr_decision_at,
+            )
+            db.add(outcome)
+            n_calibration += 1
+
+        await db.flush()
+        print(f"✅ Created {n_calibration} calibration screening outcomes")
+
+        # ---- Stalled invite candidates -----------------------------------
+        # Invited > 48h ago, status not excluded, no interview started.
+        n_stalled = 0
+        for jidx, name, email, invite_days_ago in STALLED_CANDIDATES:
+            cand = Candidate(
+                job_posting_id=jobs[jidx].id,
+                name=name,
+                email=email,
+                normalized_email=email.lower(),
+                status="ready",
+                resume_parsed_data=None,
+                invite_sent_at=_days_ago(invite_days_ago),
+                interview_token=_token(32),
+                interview_link_expires_at=_days_ago(invite_days_ago) + timedelta(days=7),
+            )
+            db.add(cand)
+            n_stalled += 1
+
+        await db.flush()
+        print(f"✅ Created {n_stalled} stalled-invite candidates")
+
         await db.commit()
         print(f"✅ Created {n_candidates} candidates")
         print(f"✅ Created {n_interviews} interviews")
@@ -668,12 +793,14 @@ async def seed() -> None:
         print()
         print("=" * 50)
         print("🎉 Seed complete! Summary:")
-        print(f"   Companies:   {len(companies)}")
-        print(f"   Users:       {len(users)}")
-        print(f"   Jobs:        {len(jobs)}")
-        print(f"   Candidates:  {n_candidates}")
-        print(f"   Interviews:  {n_interviews}")
-        print(f"   Evaluations: {n_evaluations}")
+        print(f"   Companies:        {len(companies)}")
+        print(f"   Users:            {len(users)}")
+        print(f"   Jobs:             {len(jobs)}")
+        print(f"   Candidates:       {n_candidates}")
+        print(f"   Interviews:       {n_interviews}")
+        print(f"   Evaluations:      {n_evaluations}")
+        print(f"   Screening outcomes (calibration): {n_calibration}")
+        print(f"   Stalled invites:  {n_stalled}")
         print()
         print("📋 Login credentials (all users):")
         print("   Password: Password123!")
