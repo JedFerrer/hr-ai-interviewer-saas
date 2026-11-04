@@ -1,7 +1,7 @@
 {
   "format": "sha256-lf-text-path-lines-v2",
   "count": 279,
-  "digest": "93286388b80991253704f4cae71ad792b7bab1a123812dbc6ecffba5cee2714c",
+  "digest": "79445d569004cd98ae6befc3a337ff919fd336874fa99e3d117b9b618dccf86e",
   "files": [
     {
       "path": ".env.example",
@@ -910,8 +910,8 @@
     },
     {
       "path": "docs/quality-checks.md",
-      "size": 10092,
-      "sha256": "a3e1c36868251e7a671677fdd73ddc02d680b262f3b7c497698473e348988071"
+      "size": 10366,
+      "sha256": "e40b67949325304d523f56d87bd3aaf04bd0bc47f0bafcc75e0576f496e91d23"
     },
     {
       "path": "docs/release-checklist.md",
@@ -1300,8 +1300,8 @@
     },
     {
       "path": "scripts/check_secrets.py",
-      "size": 6076,
-      "sha256": "c0261f41d6ba77fcb0d10642bac59ac5b5899689ea11dab3e373c64b4f3d0178"
+      "size": 8526,
+      "sha256": "a23ab7f469b6d5bb791ae2e2ad38097f11c78f5f36f1ce6cab6683486c857102"
     },
     {
       "path": "scripts/cleanup_checks.py",
@@ -1315,8 +1315,8 @@
     },
     {
       "path": "scripts/test_source_metadata.py",
-      "size": 2506,
-      "sha256": "0ac214a8e83052a08ab6611c3d983f56c8bf934aadbbc5c92d2b2865f30f83dd"
+      "size": 4214,
+      "sha256": "dbbea0e3022ea8e4df655a14f2026839f5906ad28950e5fd363c8343836f0603"
     },
     {
       "path": "scripts/validate_ci.py",

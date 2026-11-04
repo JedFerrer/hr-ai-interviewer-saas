@@ -10,7 +10,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from validate_source import DIGEST, digest_for, selected_paths
+from validate_source import DIGEST, MANIFEST, digest_for, selected_paths
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY_ROOT = Path(os.environ.get("HR_CHECK_HISTORY_ROOT", ROOT)).resolve()
@@ -36,19 +36,62 @@ def text_content(data, path):
     return data.decode("utf-8")
 
 
-def verified_digest_text(data):
+def verified_digest_text(data, expected=None):
     """Remove only recomputed source hashes, retaining paths for normal scanning.
 
-    This applies to the current generated sidecar only, never historical blobs.
+    Historical sidecars must supply metadata recomputed from their own Git tree.
     Extra fields, changed hashes or stale metadata fail closed before filtering.
     """
     document = json.loads(data)
-    if document != digest_for(selected_paths()):
+    if document != (digest_for(selected_paths()) if expected is None else expected):
         raise ValueError("Source digest is not the exact recomputed metadata")
     document["digest"] = "verified-sha256"
     for row in document["files"]:
         row["sha256"] = "verified-sha256"
     return json.dumps(document).encode()
+
+
+def historical_digest(commit, read):
+    """Recompute metadata from immutable Git blobs, never executing historical code."""
+    names = read(commit, MANIFEST).decode("utf-8").splitlines()
+    if names != sorted(set(names)) or DIGEST not in names:
+        raise ValueError("Invalid historical source manifest")
+    rows = []
+    for name in names:
+        if not name or "\\" in name or name.startswith("/") or ":" in name or ".." in name.split("/"):
+            raise ValueError("Invalid historical source path")
+        if name == DIGEST:
+            continue
+        data = read(commit, name)
+        if Path(name).suffix not in {".pdf", ".docx", ".png"}:
+            data = data.decode("utf-8").replace("\r\n", "\n").encode("utf-8")
+        rows.append({"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    aggregate = "".join(f"{row['sha256']}  {row['path']}\n" for row in rows)
+    return {"format": "sha256-lf-text-path-lines-v2", "count": len(rows),
+            "digest": hashlib.sha256(aggregate.encode()).hexdigest(), "files": rows}
+
+
+def verified_history_metadata(refs):
+    """Only filter digest blobs that exactly match a reachable containing commit."""
+    verified = {}
+    blobs = {}
+    def read(commit, path):
+        oid = git("rev-parse", commit + ":" + path).decode().strip()
+        if oid not in blobs:
+            blobs[oid] = git("cat-file", "blob", oid)
+        return blobs[oid]
+    for commit in git("rev-list", *refs).decode().splitlines():
+        entries = git("ls-tree", commit, "--", DIGEST).decode().splitlines()
+        if not entries:
+            continue
+        oid = entries[0].split()[2]
+        if oid not in verified:
+            verified[oid] = verified_digest_text(read(commit, DIGEST), historical_digest(commit, read))
+    return verified
+
+
+def same_reviewed_baseline(path, data, current):
+    return path == "security/secrets-baseline.json" and data.replace(b"\r\n", b"\n") == current.replace(b"\r\n", b"\n")
 
 
 def main():
@@ -62,12 +105,19 @@ def main():
     items = [("source:" + p, verified_digest_text((ROOT / p).read_bytes()) if p == DIGEST
               else (ROOT / p).read_bytes(), p) for p in manifest
              if p != "security/secrets-baseline.json"]
+    verified_history = verified_history_metadata(refs)
     history_count = 0
     for line in objects:
         oid, _, path = line.partition(" ")
         if git("cat-file", "-t", oid).strip() == b"blob":
             history_count += 1
-            items.append(("git:" + oid + ":" + path, git("cat-file", "blob", oid), path))
+            data = git("cat-file", "blob", oid)
+            if same_reviewed_baseline(path, data, baseline_path.read_bytes()):
+                # Same reviewed baseline excluded from current scanning; other historical versions remain scanned.
+                continue
+            if path == DIGEST and oid in verified_history:
+                data = verified_history[oid]
+            items.append(("git:" + oid + ":" + path, data, path))
     findings = []
     unreadable = []
     with tempfile.TemporaryDirectory(prefix="hr-secret-scan-") as directory:

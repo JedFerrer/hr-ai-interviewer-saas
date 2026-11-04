@@ -136,7 +136,11 @@ Syntactically complete SHA256 lock hashes and npm integrity checksum lines
 are filtered. The current source digest is checked against every recomputed file
 hash and the exact expected schema before only its hash values are filtered;
 paths and other metadata remain scanned. Stale/extra fields fail closed. Historical
-digest blobs are scanned unchanged. Regression tests verify these boundaries. `security/secrets-baseline.json` contains reviewed fingerprints
+digests are independently recomputed from their containing commit and exact schema
+before filtering only verified hash fields; unmatched or tampered metadata fails
+closed. Historical baseline bytes identical to the current reviewed baseline are
+excluded from recursive scanning; other versions remain scanned. Regression tests
+verify these boundaries. `security/secrets-baseline.json` contains reviewed fingerprints
 bound to the entire normalized file content, detector and secret hash, plus a
 reason. Its own hash-only entries are not scanned recursively. Exceptions cover
 specific examples/test literals, revision IDs and public action hashes; changing

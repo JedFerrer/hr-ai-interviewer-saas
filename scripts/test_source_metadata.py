@@ -32,7 +32,32 @@ class DigestFilteringTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.filter(document)
 
-    def test_historical_digest_is_scanned_unmodified(self):
+    def test_historical_digest_recomputed_from_its_tree(self):
+        files = {check_secrets.MANIFEST: ("public.py\n" + check_secrets.DIGEST + "\n").encode(),
+                 "public.py": b"test\r\n"}
+        expected = check_secrets.historical_digest("commit", lambda commit, name: files[name])
+        raw = json.dumps(expected).encode()
+        filtered = json.loads(check_secrets.verified_digest_text(raw, expected))
+        self.assertEqual(filtered["files"][0]["path"], "public.py")
+        self.assertEqual(filtered["files"][0]["sha256"], "verified-sha256")
+        files["public.py"] = b"changed"
+        with self.assertRaises(ValueError):
+            check_secrets.verified_digest_text(raw, check_secrets.historical_digest("commit", lambda commit, name: files[name]))
+        with self.assertRaises(ValueError):
+            check_secrets.verified_digest_text(json.dumps({**expected, "extra": "injected"}).encode(), expected)
+
+    def test_historical_manifest_rejects_unsafe_or_duplicate_paths(self):
+        for names in ("../private\n", "public.py\npublic.py\n", "C:/private\n"):
+            with self.assertRaises(ValueError):
+                check_secrets.historical_digest("commit", lambda commit, name, names=names: (names + check_secrets.DIGEST + "\n").encode())
+
+    def test_only_exact_reviewed_baseline_is_recognized(self):
+        path = "security/secrets-baseline.json"
+        self.assertTrue(check_secrets.same_reviewed_baseline(path, b"reviewed\r\n", b"reviewed\n"))
+        self.assertFalse(check_secrets.same_reviewed_baseline(path, b"injected", b"reviewed\n"))
+        self.assertFalse(check_secrets.same_reviewed_baseline("other.json", b"reviewed\n", b"reviewed\n"))
+
+    def test_unverified_historical_digest_text_is_not_filtered(self):
         raw = json.dumps(self.document).encode()
         self.assertEqual(check_secrets.text_content(raw, check_secrets.DIGEST), raw.decode())
 
