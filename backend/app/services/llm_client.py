@@ -9,6 +9,7 @@ errors (4xx other than 429) propagate immediately so we don't mask bugs.
 from __future__ import annotations
 
 import logging
+import json
 
 from openai import (
     APIConnectionError,
@@ -26,19 +27,41 @@ logger = logging.getLogger(__name__)
 _settings = get_settings()
 
 # Default timeout and retry config per-provider attempt
-_TIMEOUT = 60.0
-_MAX_RETRIES = 2
+_request_count = 0
+
+
+class ProviderConfigurationError(RuntimeError):
+    """Safe, actionable configuration failure (never contains provider payloads)."""
+
+
+def provider_error_message(exc: Exception) -> str:
+    if isinstance(exc, ProviderConfigurationError):
+        return str(exc)
+    if isinstance(exc, RateLimitError):
+        return "AI provider rate limit or quota reached. Check billing/limits before retrying."
+    if isinstance(exc, (APITimeoutError, APIConnectionError)):
+        return "AI provider connection timed out or failed. Retry later; check network access."
+    if isinstance(exc, APIStatusError):
+        if exc.status_code in (401, 403):
+            return "AI provider rejected credentials or access. Check the selected provider key and permissions."
+        if exc.status_code in (400, 404, 422):
+            return "AI provider rejected the model or request. Check LLM_MODEL and provider compatibility."
+        return "AI provider is unavailable. Retry later."
+    return "Processing failed. HR can retry after checking provider configuration."
 
 
 def _build_client(provider_cfg: dict) -> AsyncOpenAI:
     """Build an AsyncOpenAI client for a single provider config."""
     if _settings.portfolio_demo:
         raise RuntimeError("Live provider forbidden in portfolio demo")
+    if not provider_cfg["api_key"]:
+        raise ProviderConfigurationError("Selected AI provider API key is missing. Configure it locally and restart the backend.")
     return AsyncOpenAI(
         api_key=provider_cfg["api_key"],
         base_url=provider_cfg.get("base_url"),
-        timeout=_TIMEOUT,
-        max_retries=_MAX_RETRIES,
+        default_headers=provider_cfg.get("default_headers", {}),
+        timeout=_settings.llm_timeout_seconds,
+        max_retries=_settings.llm_max_retries,
     )
 
 
@@ -79,20 +102,34 @@ async def llm_chat_completion(
     if _settings.portfolio_demo:
         from app.demo.adapters import completion
         return completion(operation, demo_context or {}), "portfolio-synthetic"
-    chain = _settings.get_fallback_chain()
+    try:
+        chain = _settings.get_fallback_chain()
+    except ValueError:
+        raise ProviderConfigurationError("Invalid fallback configuration. Check provider names and credentials.") from None
+    global _request_count
 
     last_exc: Exception | None = None
 
     for i, provider_cfg in enumerate(chain):
-        provider_model = model or provider_cfg["model"]
+        provider_model = (model if i == 0 else None) or provider_cfg["model"]
         client = _build_client(provider_cfg)
 
         call_kwargs = dict(kwargs)
+        call_kwargs.setdefault("max_tokens", getattr(_settings, "llm_max_output_tokens", 4096))
+        if provider_cfg["name"] == "deepseek":
+            call_kwargs.setdefault("extra_body", {"thinking": {"type": "disabled"}})
         if json_mode and provider_cfg.get("name") in _JSON_MODE_PROVIDERS:
             # Don't clobber an explicit caller-supplied response_format.
             call_kwargs.setdefault("response_format", {"type": "json_object"})
 
         try:
+            limit = getattr(_settings, "llm_request_limit", 0)
+            input_limit = getattr(_settings, "llm_max_input_bytes", 0)
+            if input_limit and len(json.dumps(messages, ensure_ascii=False).encode("utf-8")) > input_limit:
+                raise ProviderConfigurationError("AI input exceeds the configured verification byte limit.")
+            if limit and _request_count >= limit:
+                raise ProviderConfigurationError("AI request limit reached. Stop verification and review the budget.")
+            _request_count += 1
             response = await client.chat.completions.create(
                 model=provider_model,
                 messages=messages,
@@ -115,7 +152,7 @@ async def llm_chat_completion(
             remaining = len(chain) - i - 1
             logger.warning(
                 "LLM provider failed (model=%s): %s. %d fallback(s) remaining.",
-                provider_model, exc, remaining,
+                provider_model, type(exc).__name__, remaining,
             )
             continue
         except APIStatusError as exc:
@@ -127,34 +164,29 @@ async def llm_chat_completion(
                 remaining = len(chain) - i - 1
                 logger.warning(
                     "LLM provider 5xx (model=%s, status=%s): %s. %d fallback(s) remaining.",
-                    provider_model, status_code, exc, remaining,
+                    provider_model, status_code, type(exc).__name__, remaining,
                 )
                 continue
             raise
+        finally:
+            await client.close()
 
     # All providers exhausted
     raise last_exc  # type: ignore[misc]
 
 
-def get_async_openai_client() -> AsyncOpenAI:
-    """Build client for the primary provider only (no fallback).
-
-    Use llm_chat_completion() instead when fallback is desired.
-    Kept for backward-compat in places that need a raw client.
-    """
+def get_async_openai_client() -> None:
+    """Validate credentials for legacy arguments; async operations use the boundary."""
     if _settings.portfolio_demo:
         from app.demo.guard import require_demo
         require_demo()
         return None  # Compatibility argument only; all async calls use the boundary above.
     api_key = _settings.active_llm_api_key
     if not api_key:
-        raise RuntimeError(
+        raise ProviderConfigurationError(
             f"LLM API key is not configured (provider={_settings.llm_provider}). "
             "Set OPENAI_API_KEY, DEEPSEEK_API_KEY, or ANTHROPIC_API_KEY in .env"
         )
-    return AsyncOpenAI(
-        api_key=api_key,
-        base_url=_settings.active_llm_base_url,
-        timeout=_TIMEOUT,
-        max_retries=_MAX_RETRIES,
-    )
+    # Legacy argument only: all application async operations use the boundary above.
+    # Avoid allocating an unused HTTP client for every interview turn.
+    return None

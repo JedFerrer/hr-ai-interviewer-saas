@@ -148,7 +148,7 @@ async def get_job_by_token(db: AsyncSession, job_token: str) -> JobPosting:
 def normalize_email(email: str) -> str:
     """Normalize email: lowercase, strip +alias tags (Gmail-style).
 
-    e.g. Ferrer.Jedidiah+123@Gmail.com → ferrer.jedidiah@gmail.com
+    e.g. Avery.Example+123@Example.com → avery.example@example.com
     """
     email = email.strip().lower()
     local, _, domain = email.partition("@")
@@ -505,7 +505,9 @@ async def process_application_background(
                 running_ct=total_ct,
             )
 
-        except Exception:
+        except Exception as exc:
+            from app.services.llm_client import provider_error_message
+            failure_message = provider_error_message(exc)
             logger.exception("Background processing failed for candidate %s", candidate_id)
             # Mark candidate with error status using a fresh session (original may be broken)
             try:
@@ -515,7 +517,7 @@ async def process_application_background(
                         candidate.status = "error"
                         candidate.pre_screen_decision = "error"
                         candidate.pre_screen_reason = (
-                            "Processing failed. HR can retry processing after checking provider configuration."
+                            failure_message
                         )[:500]
                         candidate.pre_screened_at = datetime.now(timezone.utc)
                         await _commit_with_retry(err_db)
@@ -657,7 +659,7 @@ async def get_session_landing(
     }
 
 
-@serialized("interview", "interview_token")
+@serialized("interview", "interview_token", reject_busy=True)
 async def begin_session(
     db: AsyncSession,
     interview_token: str,
@@ -768,7 +770,7 @@ async def begin_session(
     return interview_token, opening_text, len(questions)
 
 
-@serialized("interview", "interview_token")
+@serialized("interview", "interview_token", reject_busy=True)
 async def process_message(
     db: AsyncSession,
     interview_token: str,

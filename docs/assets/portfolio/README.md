@@ -1,5 +1,8 @@
 # Fictional screenshot gallery and provenance
 
+These optional demo images are synthetic. The primary product gallery now uses
+[real-provider captures](../real-provider/README.md) with separate provenance.
+
 All people, companies, resumes and results shown here are fictional. Scores and
 replies are deterministic simulations, not live-model evaluations. These images
 illustrate the UI and do not prove automated-test coverage or hiring quality.

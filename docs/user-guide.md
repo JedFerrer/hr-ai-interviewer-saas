@@ -1,7 +1,11 @@
 # Fictional evaluation user guide
 
-Start the [owned demo](portfolio-demo.md) and use its fictional accounts and
-fixtures. All scores in that mode are simulations. Do not submit real resumes.
+Use [ordinary local setup](real-provider-setup.md) for your configured provider,
+or the [owned demo](portfolio-demo.md) for fixed synthetic responses and a captured
+mailbox. Use invented accounts and resumes for local evaluation. Actual email
+requires an explicitly approved recipient; reserved-domain fixtures are for
+captured/demo delivery only. [Real-provider acceptance evidence](real-provider-acceptance.md)
+records the separately authorized live run.
 
 ## Employer and candidate journey
 
@@ -11,7 +15,7 @@ fixtures. All scores in that mode are simulations. Do not submit real resumes.
    thresholds or manual-all. Thresholds control review/invitation routing, not
    validated hiring suitability. Copy the job's application link.
 2. In a separate candidate browser context, open that link, enter a fictional
-   name and reserved-domain email, and upload a supplied PDF/DOCX (up to 10 MiB).
+   name and an approved test email (reserved-domain in demo), and upload a supplied PDF/DOCX (up to 10 MiB).
    Submit once and wait for processing. Duplicate normalized email/job applications
    are normally refused. A closed/unavailable job is not an invitation to bypass
    the form through an old URL.
@@ -20,16 +24,19 @@ fixtures. All scores in that mode are simulations. Do not submit real resumes.
    A low score enters human review rather than automatically rejecting the person.
    Approve or reject pre-screening explicitly. Approval may prepare an interview
    without successful delivery; check the delivery indicator.
-4. Read the interview invitation in the protected local mailbox. Open it in
+4. Read the interview invitation in the protected local demo mailbox, or the
+   approved inbox in ordinary mode. Open it in
    the candidate context, start the interview, and provide distinct fictional
    answers. Short/repetitive-answer guards still apply. Resume a valid unfinished
    session through its link; completed sessions are not new interviews.
-   Prefer desktop for this walkthrough: the demo banner overlaps the interview
-   header, and on narrow screens the composer extends below the first viewport.
+   The demo banner/header separation was fixed and checked at desktop/narrow
+   sizes. Scroll the transcript or page where needed; this is not a broad
+   accessibility certification.
 5. Return to candidate detail. Inspect the transcript, evaluation, strengths/gaps
    and integrity signals. Demo evaluation is a labeled fixed 8/10. Interpret
    scores and flags with human review; they are not evidence of hiring validity
-   or misconduct. Internal notes and comparison views support that review.
+   or misconduct. The pipeline's comparison view supports that review; internal
+   notes are not implemented in the current UI.
 
 ## Decisions, notifications and retries
 
@@ -59,15 +66,17 @@ for configured test addresses; keep it off. It is not an email safety switch.
 
 Use **Share Report → Generate share link** to obtain a read-only report URL.
 It exposes candidate name, job/company, evaluation **and transcript**, but not the
-resume, email, internal notes or integrity details. Anyone with the valid link
+resume, email or raw integrity signals. The AI evaluation summary may discuss
+integrity concerns, so review its actual content before sharing. Anyone with the valid link
 can read it. The URL is displayed once in that dialog; keep it private. Use
 **Revoke** while the generated-link dialog is still open, then reload the report
 to see **Link unavailable**. The current dialog forgets the link when closed;
 it is not a persistent link-management screen. Do not close it before practicing
 revocation. Default report lifetime is seven days (`SHARE_LINK_TTL_DAYS`).
 
-In **Settings → Team & invites**, administrators invite a fictional reserved-domain
-address and can list/revoke pending invitations. Follow the captured invitation
+In **Settings → Team & invites**, administrators invite an approved test address
+(reserved-domain with captured delivery in demo) and can list/revoke pending
+invitations. Follow the invitation
 to create a recruiter account. Recruiters can view team membership and work with
 their company's jobs/candidates/reports, but cannot administer invitations or
 grant admin rights. Public signup creates a separate company administrator;
@@ -82,7 +91,8 @@ requires administrators to reissue invitations as recruiter invitations.
 
 View job analytics for application/status counts, funnel and available score
 summaries. These summarize saved workflow data, not independent measures of hiring
-success. Tabs in one browser context share login cookies; refresh after account
+success. The funnel excludes pre-screen rejections without a completed interview;
+it is not a complete decision history. Tabs in one browser context share login cookies; refresh after account
 switches. The second fictional company demonstrates a separate pipeline.
 
 Archiving a job is a status change, not candidate erasure. To remove the complete

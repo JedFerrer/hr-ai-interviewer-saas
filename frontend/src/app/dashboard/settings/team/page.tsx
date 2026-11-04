@@ -18,11 +18,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { team } from "@/lib/api";
+import { parseApiDate } from "@/lib/dates";
 import { useAuth } from "@/lib/auth";
 import type { TeamInvite, TeamMember } from "@/lib/types";
 
 const formatDate = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, {
+  parseApiDate(iso).toLocaleString(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   });
@@ -163,7 +164,7 @@ export default function TeamSettingsPage() {
                   <div>
                     <p className="text-sm font-medium">{invite.email}</p>
                     <p className="text-xs text-muted-foreground">
-                      Sent {formatDate(invite.created_at)} · Expires{" "}
+                      Created {formatDate(invite.created_at)} · Expires{" "}
                       {formatDate(invite.expires_at)}
                     </p>
                   </div>

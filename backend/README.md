@@ -1,8 +1,8 @@
 # Backend setup
 
-For evaluation, use the [owned fictional demo](../docs/portfolio-demo.md).
-It needs no environment files or provider credentials. This guide describes
-ordinary local development only, on Windows with SQLite and one worker.
+Start with the [ordinary real-provider setup](../docs/real-provider-setup.md).
+This component reference covers Windows, SQLite and one worker. The
+[fictional demo](../docs/portfolio-demo.md) is an optional credential-free preview.
 
 ## Install and configure
 
@@ -29,8 +29,9 @@ required file. Shell environment values override file values.
 | `REDIS_URL` | Leave blank for this single-worker scope; Redis alone does not make the app multi-worker safe |
 | `ENABLE_TEST_EMAILS`, `TEST_EMAILS` | Keep false/empty. Bypass can delete a previous same-job application before re-testing; it does not suppress email |
 
-Generate each secret separately with the installed Python's
-`-c "import secrets; print(secrets.token_hex(64))"`. Keep the outputs private.
+For fresh files, run `.venv/Scripts/python.exe backend/scripts/setup_local.py`
+from root to generate both secrets directly into private environment files. It
+refuses to overwrite existing files. Review existing files locally if present.
 Cloud storage settings in the template do not enable cloud uploads: the current
 application writes local files. Leave them blank for this evaluation scope.
 

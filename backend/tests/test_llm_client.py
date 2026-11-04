@@ -29,7 +29,7 @@ from app.services import llm_client
 def _stub_client(create_side_effect):
     """Build a stub that mimics AsyncOpenAI.chat.completions.create."""
     create = AsyncMock(side_effect=create_side_effect)
-    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))), create
+    return SimpleNamespace(close=AsyncMock(), chat=SimpleNamespace(completions=SimpleNamespace(create=create))), create
 
 
 _FAKE_REQUEST = httpx.Request("POST", "https://example.test/v1/chat/completions")
@@ -72,8 +72,8 @@ def _success_response():
 def two_provider_chain():
     """Patch the fallback chain to return two distinct providers."""
     chain = [
-        {"name": "deepseek", "api_key": "k1", "model": "deepseek-chat", "base_url": "x"},
-        {"name": "openai", "api_key": "k2", "model": "gpt-4.1-mini", "base_url": None},
+        {"name": "deepseek", "api_key": "k1", "model": "deepseek-chat", "base_url": "x"},  # pragma: allowlist secret -- fictional mocked credential, never sent
+        {"name": "openai", "api_key": "k2", "model": "gpt-4.1-mini", "base_url": None},  # pragma: allowlist secret -- fictional mocked credential, never sent
     ]
     fake_settings = SimpleNamespace(portfolio_demo=False, get_fallback_chain=lambda: chain)
     with patch.object(llm_client, "_settings", fake_settings):

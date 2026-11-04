@@ -266,6 +266,7 @@ export interface PreScreenSummary {
 }
 
 export interface CandidateDetail extends Candidate {
+  interview_link?: string | null;
   resume_url: string;
   resume_parsed_data: ResumeParsedData | null;
   interview: Interview;

@@ -4,14 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
-  ArrowDown,
   ArrowRight,
-  ArrowUp,
   Briefcase,
   Clock,
   DollarSign,
   Loader2,
-  Minus,
   PartyPopper,
   Plus,
   TrendingUp,
@@ -19,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { analytics as analyticsApi } from "@/lib/api";
+import { parseApiDate } from "@/lib/dates";
 import type {
   AnalyticsCalibration,
   AnalyticsFunnel,
@@ -290,20 +288,6 @@ function KPIGrid({
     () => sparkSlice.map((p) => p.applications),
     [sparkSlice],
   );
-  const completedSeries = useMemo(
-    () => sparkSlice.map((p) => p.completed),
-    [sparkSlice],
-  );
-  const completionSeries = useMemo(
-    () =>
-      sparkSlice.map((p) =>
-        p.applications > 0 ? p.completed / p.applications : 0,
-      ),
-    [sparkSlice],
-  );
-  const appsDelta      = halfPeriodDelta(applicationsSeries);
-  const completedDelta  = halfPeriodDelta(completedSeries);
-  const completionDelta = halfPeriodDelta(completionSeries);
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -317,10 +301,9 @@ function KPIGrid({
       <KPICard
         title="Applications"
         value={kpis.applications}
-        subtitle={`vs. prev: ${windowLabel}`}
+        subtitle={windowLabel}
         accent="sky"
         sparkline={applicationsSeries}
-        delta={appsDelta}
       />
       <KPICard
         title="Pending review"
@@ -332,19 +315,15 @@ function KPIGrid({
       <KPICard
         title="Awaiting decision"
         value={kpis.completed_awaiting_decision}
-        subtitle="completed > 48h"
+        subtitle="completed · undecided"
         accent="rose"
         emphasized={kpis.completed_awaiting_decision > 0}
-        sparkline={completedSeries}
-        delta={completedDelta}
       />
       <KPICard
         title="Completion rate"
         value={formatPercent(kpis.completion_rate)}
         subtitle={`invited \u2192 completed`}
         accent="emerald"
-        sparkline={completionSeries}
-        delta={completionDelta}
       />
       <KPICard
         title="Avg cost / interview"
@@ -360,8 +339,8 @@ function KPIGrid({
  * KPI card — gridiron-dashboard design:
  *
  *  LABEL (uppercase, muted)                              ← top
- *  2,451         [↑ 12.3%]                               ← value left, badge right
- *  vs. prev: 30 days                                     ← small muted subtitle
+ *  2,451                                                ← value
+ *  30 days                                              ← scope
  *  ─────────────────── sparkline ─────────────────────── ← bottom (h-10)
  */
 function KPICard({
@@ -372,7 +351,6 @@ function KPICard({
   accent = "slate",
   emphasized = false,
   sparkline,
-  delta,
 }: {
   title: string;
   value: string | number;
@@ -381,15 +359,8 @@ function KPICard({
   accent?: Accent;
   emphasized?: boolean;
   sparkline?: number[];
-  delta?: number | null;
 }) {
   const colors = colorMap[accent];
-  const hasDelta = delta != null && Number.isFinite(delta);
-  const trend = !hasDelta ? "flat" : delta! > 0.01 ? "up" : delta! < -0.01 ? "down" : "flat";
-  const TrendIcon = trend === "up" ? ArrowUp : trend === "down" ? ArrowDown : Minus;
-  const pctDisplay = hasDelta
-    ? (Math.abs(delta! * 100) >= 999 ? ">999" : Math.abs(delta! * 100).toFixed(1)) + "%"
-    : null;
 
   const body = (
     <Card
@@ -403,7 +374,7 @@ function KPICard({
           {title}
         </p>
 
-        {/* Value + change badge */}
+        {/* Value; the API does not provide previous-window comparisons. */}
         <div className="mt-2 flex items-end justify-between gap-2">
           <p
             className={`text-2xl font-bold tracking-tight${
@@ -412,14 +383,6 @@ function KPICard({
           >
             {value}
           </p>
-          {hasDelta && (
-            <div
-              className={`flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-semibold ${colors.bg} ${colors.text}`}
-            >
-              <TrendIcon className="h-3 w-3" />
-              {pctDisplay}
-            </div>
-          )}
         </div>
 
         {/* Subtitle */}
@@ -444,19 +407,6 @@ function KPICard({
     </Card>
   );
   return href ? <Link href={href}>{body}</Link> : body;
-}
-
-/**
- * Compare the second half of a series to the first half and return the
- * fractional change. Returns null when there isn't enough signal.
- */
-function halfPeriodDelta(values: number[]): number | null {
-  if (values.length < 4) return null;
-  const mid = Math.floor(values.length / 2);
-  const prev = values.slice(0, mid).reduce((s, v) => s + v, 0);
-  const curr = values.slice(mid).reduce((s, v) => s + v, 0);
-  if (prev <= 0) return curr > 0 ? 1 : null;
-  return (curr - prev) / prev;
 }
 
 // --- Sparkline (inline SVG, no recharts) -------------------------------------
@@ -1130,7 +1080,7 @@ function windowSuffix(w: AnalyticsWindow): string {
 }
 
 function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
+  const then = parseApiDate(iso).getTime();
   const diffMs = Date.now() - then;
   const min = Math.round(diffMs / 60_000);
   if (min < 60) return `${min}m`;

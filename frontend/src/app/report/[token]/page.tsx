@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { publicReports } from "@/lib/api";
+import { parseApiDate } from "@/lib/dates";
 import type { PublicReport } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -129,7 +130,7 @@ export default function PublicReportPage({ params }: PageProps) {
             <>
               {" "}
               · Interviewed{" "}
-              {format(new Date(report.completed_at), "MMM d, yyyy")}
+              {format(parseApiDate(report.completed_at), "MMM d, yyyy")}
             </>
           )}
         </p>
@@ -295,7 +296,7 @@ export default function PublicReportPage({ params }: PageProps) {
 
       <footer className="text-center text-xs text-muted-foreground">
         Shared via {report.company_name} · Link expires{" "}
-        {format(new Date(report.expires_at), "MMM d, yyyy")}
+        {format(parseApiDate(report.expires_at), "MMM d, yyyy")}
       </footer>
     </div>
   );

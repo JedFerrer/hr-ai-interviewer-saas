@@ -1,5 +1,7 @@
 "use client";
 
+import { parseApiDate } from "@/lib/dates";
+
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -220,6 +222,19 @@ export default function CandidateDetailPage() {
         <Card><CardContent className="space-y-3 pt-6">
           <p>The interview is ready, but its invitation email was not delivered. Retry delivery after checking email configuration.</p>
           <Button disabled={isActioning} onClick={() => retryFailedStep("invite")}>Retry invitation email</Button>
+        </CardContent></Card>
+      )}
+      {candidate.interview_link && (
+        <Card><CardContent className="space-y-3 pt-6">
+          <p>Share this private interview link only with this candidate. Copying it does not send email.</p>
+          <Button onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(candidate.interview_link!);
+              toast.success("Interview link copied");
+            } catch {
+              toast.error("Could not copy the interview link. Check clipboard permissions.");
+            }
+          }}>Copy interview link</Button>
         </CardContent></Card>
       )}
 
@@ -1175,10 +1190,10 @@ function NotifyCandidatePanel({
                 <span className="font-medium">
                   {NOTIFICATION_KIND_LABEL[lastKind]}
                 </span>{" "}
-                · {new Date(lastSentAt).toLocaleString()}
+                · {parseApiDate(lastSentAt).toLocaleString()}
               </>
             ) : (
-              <>No emails sent to this candidate yet.</>
+              <>No status notifications sent to this candidate yet.</>
             )}
           </p>
           {hasStatusNotifMismatch && (
@@ -1220,7 +1235,7 @@ function NotifyCandidatePanel({
                 A <strong>{NOTIFICATION_KIND_LABEL[lastKind!]}</strong> email
                 was previously sent
                 {lastSentAt && (
-                  <> on {new Date(lastSentAt).toLocaleString()}</>
+                  <> on {parseApiDate(lastSentAt).toLocaleString()}</>
                 )}
                 . Sending a <strong>{NOTIFICATION_KIND_LABEL[kind]}</strong>{" "}
                 now may confuse the candidate — consider a correction email
@@ -1298,7 +1313,7 @@ function NotifyCandidatePanel({
                   </span>{" "}
                   notification
                   {conflict.last_sent_at && (
-                    <> on {new Date(conflict.last_sent_at).toLocaleString()}</>
+                    <> on {parseApiDate(conflict.last_sent_at).toLocaleString()}</>
                   )}
                   . Sending a{" "}
                   <span className="font-medium">

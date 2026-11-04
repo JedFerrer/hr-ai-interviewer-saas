@@ -1,5 +1,8 @@
 # Local fictional portfolio demo
 
+For the primary installation path with your own credentials, see
+[ordinary setup](real-provider-setup.md). This guide is an optional synthetic preview.
+
 This is a local workflow demonstration with invented people and companies.
 AI responses and scores are deterministic simulations. Email is captured, never
 delivered. It makes no hiring-accuracy, fairness, provider-quality, or email

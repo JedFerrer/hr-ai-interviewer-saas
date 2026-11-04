@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from pydantic_settings import BaseSettings
 
@@ -31,11 +31,18 @@ class Settings(BaseSettings):
     environment: Literal["development", "production"] = "development"
 
     # LLM Provider: "openai", "deepseek", or "anthropic"
-    llm_provider: str = "deepseek"
+    llm_provider: Literal["openai", "deepseek", "anthropic"] = "deepseek"
     llm_model: str = ""  # auto-detected from provider if blank
     openai_api_key: str = ""
     deepseek_api_key: str = ""
     anthropic_api_key: str = ""
+    anthropic_workspace_id: str = ""
+    llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    llm_max_retries: int = Field(default=0, ge=0, le=2)
+    llm_max_output_tokens: int = Field(default=4096, ge=256, le=16384)
+    # Optional per-process verification limits; restart resets the counter.
+    llm_request_limit: int = Field(default=0, ge=0)
+    llm_max_input_bytes: int = Field(default=0, ge=0)
 
     # Fallback order: comma-separated provider names tried after primary fails
     # e.g. "anthropic,openai" means: try primary → anthropic → openai
@@ -61,33 +68,40 @@ class Settings(BaseSettings):
             "deepseek": {
                 "name": "deepseek",
                 "api_key": self.deepseek_api_key,
-                "model": "deepseek-chat",
+                "model": "deepseek-flash",
                 "base_url": "https://api.deepseek.com",
             },
             "openai": {
                 "name": "openai",
                 "api_key": self.openai_api_key,
                 "model": "gpt-4.1-mini",
-                "base_url": None,
+                "base_url": "https://api.openai.com/v1",
             },
             "anthropic": {
                 "name": "anthropic",
                 "api_key": self.anthropic_api_key,
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-6",
                 "base_url": "https://api.anthropic.com/v1/",
+                "default_headers": ({"anthropic-workspace-id": self.anthropic_workspace_id}
+                                    if self.anthropic_workspace_id else {}),
             },
         }
-        return providers.get(provider, providers["deepseek"])
+        if provider not in providers:
+            raise ValueError("Unsupported LLM provider; use openai, deepseek or anthropic")
+        return providers[provider]
 
     def get_fallback_chain(self) -> list[dict]:
         """Return ordered list of provider configs: [primary, fallback1, fallback2, ...]."""
         chain = [self._provider_config(self.llm_provider)]
+        chain[0]["model"] = self.active_llm_model
         if self.llm_fallback_providers:
             for name in self.llm_fallback_providers.split(","):
                 name = name.strip()
                 if name and name != self.llm_provider:
                     cfg = self._provider_config(name)
-                    if cfg["api_key"]:
+                    if not cfg["api_key"]:
+                        raise ValueError("An explicitly selected fallback is missing its API key")
+                    if not any(item["name"] == name for item in chain):
                         chain.append(cfg)
         return chain
 
@@ -98,7 +112,7 @@ class Settings(BaseSettings):
 
     # Email (Resend)
     resend_api_key: str = ""
-    from_email: str = "onboarding@resend.dev"
+    from_email: str = ""
 
     # App
     app_url: str = "http://localhost:3000"
@@ -127,6 +141,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def secure_configuration(self):
+        for name in self.llm_fallback_providers.split(","):
+            if name.strip():
+                self._provider_config(name.strip())
         if self.portfolio_demo:
             if self.environment != "development":
                 raise ValueError("Portfolio demo is forbidden in production")
