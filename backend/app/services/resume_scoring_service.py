@@ -91,6 +91,7 @@ async def score_resume_match(
     )
 
     response, _model = await llm_chat_completion(
+        operation="screen", demo_context={"resume": resume_data},
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
         json_mode=True,

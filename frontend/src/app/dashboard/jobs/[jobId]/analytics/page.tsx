@@ -74,8 +74,13 @@ export default function JobAnalyticsPage({
   );
 
   useEffect(() => {
-    load(windowSel);
-  }, [load, windowSel]);
+    let active = true;
+    analyticsApi.job(jobId, windowSel).then(
+      (result) => { if (active) { setData(result); setError(null); } },
+      (err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Failed to load"); },
+    ).finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
+  }, [jobId, windowSel]);
 
   if (isLoading && !data) {
     return (
@@ -127,7 +132,7 @@ export default function JobAnalyticsPage({
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setWindowSel(opt.value)}
+                  onClick={() => { if (opt.value !== windowSel) { setIsLoading(true); setWindowSel(opt.value); } }}
                   className={`rounded-sm px-3 py-1 text-xs transition-colors ${
                     active
                       ? "bg-primary text-primary-foreground"

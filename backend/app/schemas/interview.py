@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field
 
 
 class InterviewLandingResponse(BaseModel):
@@ -59,7 +59,7 @@ class InterviewStartResponse(BaseModel):
 
 class InterviewMessageRequest(BaseModel):
     interview_token: str
-    message: str
+    message: str = Field(min_length=1, max_length=20000)
     integrity_signals: dict | None = None
 
 

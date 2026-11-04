@@ -11,9 +11,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.utils.safe_logging import install_safe_logging, safe_audit_fields
+
+install_safe_logging()
+
 from app.config import get_settings
 from app.middleware.rate_limiter import install_rate_limiter
-from app.routers import admin, analytics, auth, candidates, email_templates, interviews, jobs, public, share
+from app.middleware.body_limit import BodyLimitMiddleware
+from app.routers import analytics, auth, candidates, email_templates, interviews, jobs, public, share, team
+from app.utils.pubsub import InMemoryPubSub, set_pubsub
 
 settings = get_settings()
 
@@ -42,7 +48,7 @@ class _AuditFormatter(logging.Formatter):
         # Merge any structured fields placed under record.audit_fields
         fields = getattr(record, "audit_fields", None)
         if isinstance(fields, dict):
-            payload.update(fields)
+            payload.update(safe_audit_fields(fields))
         return "AUDIT " + json.dumps(payload, default=str, separators=(",", ":"))
 
 
@@ -62,10 +68,18 @@ async def lifespan(app: FastAPI):
 
     Schema is owned by Alembic — no `create_all` here. Run migrations before
     starting the app:  `alembic upgrade head`.
+
+    Pub/sub: a single :class:`InMemoryPubSub` is installed for the lifetime
+    of the worker. To scale to multiple workers, swap this for a Redis-backed
+    implementation here — every other call site stays the same.
     """
     logger.info("App starting (env=%s)", settings.environment)
-    yield
-    logger.info("App shutting down")
+    set_pubsub(InMemoryPubSub())
+    try:
+        yield
+    finally:
+        set_pubsub(None)
+        logger.info("App shutting down")
 
 
 app = FastAPI(
@@ -87,6 +101,7 @@ app.add_middleware(
     expose_headers=["content-disposition"],
 )
 install_rate_limiter(app)
+app.add_middleware(BodyLimitMiddleware)
 
 
 _IS_PROD = settings.environment.lower() == "production"
@@ -98,7 +113,7 @@ async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault(
         "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
     )
@@ -113,16 +128,17 @@ async def security_headers(request: Request, call_next):
 async def log_requests(request: Request, call_next):
     """Log request method, path, and duration."""
     start = time.perf_counter()
-    response = await call_next(request)
-    duration = (time.perf_counter() - start) * 1000
-    logger.info(
-        "%s %s → %s (%.0fms)",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration,
-    )
-    return response
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        duration = (time.perf_counter() - start) * 1000
+        route = request.scope.get("route")
+        template = getattr(route, "path", "[unmatched]")
+        logger.info("%s %s status=%s duration_ms=%.0f", request.method, template, status_code, duration)
+
 
 
 # --- Routers ---
@@ -134,7 +150,7 @@ app.include_router(share.router)
 app.include_router(interviews.router)
 app.include_router(email_templates.router)
 app.include_router(public.router)
-app.include_router(admin.router)
+app.include_router(team.router)
 app.include_router(analytics.router)
 
 

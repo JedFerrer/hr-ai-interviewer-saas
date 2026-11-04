@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import json
 
-from openai import AsyncOpenAI, OpenAI
-from sqlalchemy import select
+from openai import OpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.evaluation import EvaluationRecord
@@ -59,6 +58,8 @@ async def evaluate_interview(
 
     Creates and returns an EvaluationRecord.
     """
+    if _settings.portfolio_demo:
+        raise ValueError("Synchronous provider operation has no demo adapter")
     candidate = interview.candidate
     job = interview.job_posting
     resume_data = candidate.resume_parsed_data or {}
@@ -157,6 +158,7 @@ async def evaluate_interview_async(
     )
 
     response, model_used = await llm_chat_completion(
+        operation="evaluate", demo_context={},
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
     )

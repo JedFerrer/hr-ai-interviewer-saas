@@ -8,6 +8,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, generate_uuid
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.company import Company
+    from app.models.user import User
+    from app.models.candidate import Candidate
+
 
 class JobPosting(Base, TimestampMixin):
     __tablename__ = "job_postings"
@@ -60,7 +67,7 @@ class JobPosting(Base, TimestampMixin):
     # hybrid mode. Anything in [review_threshold, auto_invite_threshold) goes
     # to the review queue. Below review_threshold is also routed to HR review
     # by default — strict auto-rejection is intentionally not implemented in
-    # v1 (see RESUME_GATE_AND_INVITE_PLAN §13.2).
+    # v1 (see the manual-review policy in docs/user-guide.md).
     review_threshold: Mapped[int] = mapped_column(
         Integer, nullable=False, default=55, server_default="55"
     )

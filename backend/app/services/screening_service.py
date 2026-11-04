@@ -107,7 +107,7 @@ def decide(
 
     if score < policy.review_threshold:
         # v1 deliberately routes low-score candidates to HR review rather
-        # than auto-rejecting (see RESUME_GATE_AND_INVITE_PLAN §13.2).
+        # than auto-rejecting (see the manual-review policy in docs/user-guide.md).
         return ScreeningOutcome(
             decision="review",
             reason=(

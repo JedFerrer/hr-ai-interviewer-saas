@@ -2,7 +2,7 @@
 
 Single entry point: `get_overview()`. All queries are scoped to the
 caller's `company_id` via the `JobPosting.company_id` join. Definitions
-match `plans/DASHBOARD_METRICS.md` exactly — when changing metrics,
+match `docs/architecture.md` exactly — when changing metrics,
 update the dictionary first.
 
 Performance contract (see metrics doc): one round-trip per logical

@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+# Refuse before imports that can connect, write, or expose application data.
+import sys as _guard_sys
+from pathlib import Path as _GuardPath
+_guard_sys.path.insert(0, str(_GuardPath(__file__).resolve().parents[1]))
+from scripts.owned_workspace import require_owned_workspace
+_OWNED_ROOT = require_owned_workspace(providers=False, http_target=False)
+
 import asyncio
 import secrets
 import sys
@@ -13,8 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
 
-from app.database import async_session_factory, engine
-from app.models import Base
+from app.database import async_session_factory
 from app.models.candidate import Candidate
 from app.models.company import Company
 from app.models.evaluation import EvaluationRecord
@@ -508,16 +514,14 @@ STALLED_CANDIDATES = [
 async def seed() -> None:
     """Create all seed data in the database."""
 
-    # Ensure tables exist
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    require_owned_workspace()  # recheck direct function calls; migrations own schema
 
     async with async_session_factory() as db:
         # Check if data already exists
         existing = (await db.execute(select(Company))).scalars().first()
         if existing:
             print("⚠️  Database already has data. Skipping seed.")
-            print("   To re-seed, delete backend/hr_interviewer.db and run again.")
+            print("   To re-seed, use the owned reset utility.")
             return
 
         # ---- Companies ----
@@ -591,7 +595,7 @@ async def seed() -> None:
                 transcripts_by_name: dict[str, list[dict]] = {
                     "Alex Rivera": [
                         {"role": "ai", "content": "Tell me about the most technically challenging project you've shipped at Stripe."},
-                        {"role": "candidate", "content": f"The most challenging was rebuilding our payment-retry orchestration. We had cascading failures causing a 2% revenue loss on partial network outages. I redesigned the state machine from a polling model to event-driven using Kafka, reduced retry latency by 60%, and eliminated the thundering-herd problem with exponential back-off with jitter."},
+                        {"role": "candidate", "content": "The most challenging was rebuilding our payment-retry orchestration. We had cascading failures causing a 2% revenue loss on partial network outages. I redesigned the state machine from a polling model to event-driven using Kafka, reduced retry latency by 60%, and eliminated the thundering-herd problem with exponential back-off with jitter."},
                         {"role": "ai", "content": "How do you approach debugging a production incident where the symptoms point to multiple possible causes?"},
                         {"role": "candidate", "content": "I start with the 'blast radius' question — which users are affected and in what percentage. Then I correlate deployment timestamps with the symptom onset. If those don't align I look at upstream dependencies via distributed traces. I avoid hypothesis-driven debugging early; data first."},
                         {"role": "ai", "content": "Design a URL shortener that needs to handle 10,000 writes and 1 million reads per second."},

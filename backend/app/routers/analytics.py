@@ -2,7 +2,7 @@
 
 Single endpoint: `GET /analytics/overview?window=30d`. Replaces the
 client-side aggregation that used to fan out N+1 calls (jobs.list +
-candidates per job). See `plans/DASHBOARD_METRICS.md` for metric
+candidates per job). See `docs/architecture.md` for metric
 definitions.
 """
 

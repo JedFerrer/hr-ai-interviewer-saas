@@ -14,6 +14,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, generate_uuid
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.candidate import Candidate
+
 
 class CandidateShareToken(Base):
     __tablename__ = "candidate_share_tokens"

@@ -79,8 +79,13 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    load(windowSel);
-  }, [load, windowSel]);
+    let active = true;
+    analyticsApi.overview(windowSel).then(
+      (result) => { if (active) { setData(result); setError(null); } },
+      (err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Failed to load"); },
+    ).finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
+  }, [windowSel]);
 
   if (isLoading && !data) {
     return (
@@ -108,7 +113,7 @@ export default function DashboardPage() {
       <Header
         userName={user?.name ?? null}
         windowSel={windowSel}
-        onWindowChange={setWindowSel}
+        onWindowChange={(value) => { if (value !== windowSel) { setIsLoading(true); setWindowSel(value); } }}
         loading={isLoading}
       />
 

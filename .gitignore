@@ -15,3 +15,30 @@ dist/
 node_modules/
 .next/
 nul
+
+# Local environments and generated runtime data
+.venv/
+.security-venv/
+.env.*
+!.env.example
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite*-wal
+*.sqlite*-shm
+*.log
+backend/uploads/
+backend/stress_reports/
+*.tsbuildinfo
+.coverage*
+htmlcov/
+coverage/
+.ruff_cache/
+.release-work/
+.demo-runtime/
+# Unknown provenance: retained locally, excluded from release
+/test_resume.pdf
+
+# Private development records; historical Git versions remain reachable
+/.local-dev/

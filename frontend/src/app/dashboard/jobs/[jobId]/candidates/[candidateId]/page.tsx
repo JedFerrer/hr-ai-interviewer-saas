@@ -101,26 +101,24 @@ export default function CandidateDetailPage() {
   const runAction = async (action: Action) => {
     setIsActioning(true);
     try {
-      let updated;
       switch (action) {
         case "approve_pre_screen":
-          updated = await candidatesApi.approveInterview(candidateId);
+          await candidatesApi.approveInterview(candidateId);
           break;
         case "reject_pre_screen":
-          updated = await candidatesApi.rejectPreScreen(candidateId);
+          await candidatesApi.rejectPreScreen(candidateId);
           break;
         case "shortlist":
-          updated = await candidatesApi.shortlist(candidateId);
+          await candidatesApi.shortlist(candidateId);
           break;
         case "reject":
-          updated = await candidatesApi.reject(candidateId);
+          await candidatesApi.reject(candidateId);
           break;
       }
-      setCandidate((prev) =>
-        prev ? { ...prev, status: updated.status as typeof prev.status } : prev,
-      );
+      const updated = await candidatesApi.get(candidateId);
+      setCandidate(updated);
       const messages: Record<Action, string> = {
-        approve_pre_screen: "Interview invite sent",
+        approve_pre_screen: updated.pre_screen?.invite_sent_at ? "Interview invite sent" : "Interview ready; email delivery needs retry",
         reject_pre_screen: "Candidate rejected at pre-screen",
         shortlist: "Candidate shortlisted",
         reject: "Candidate rejected",
@@ -131,6 +129,20 @@ export default function CandidateDetailPage() {
     } finally {
       setIsActioning(false);
       setConfirm(null);
+    }
+  };
+
+  const retryFailedStep = async (step: "processing" | "invite") => {
+    setIsActioning(true);
+    try {
+      if (step === "invite") await candidatesApi.retryInvite(candidateId);
+      else await candidatesApi.retryProcessing(candidateId);
+      setCandidate(await candidatesApi.get(candidateId));
+      toast.success(step === "invite" ? "Interview invite sent" : "Processing retry started. Refresh to check progress.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Retry failed");
+    } finally {
+      setIsActioning(false);
     }
   };
 
@@ -197,6 +209,19 @@ export default function CandidateDetailPage() {
           layout="mobile"
         />
       </div>
+
+      {(candidate.status === "error" && !candidate.interview) && (
+        <Card><CardContent className="space-y-3 pt-6">
+          <p>Application processing failed. After correcting the provider configuration, retry using the saved resume.</p>
+          <Button disabled={isActioning} onClick={() => retryFailedStep("processing")}>Retry processing</Button>
+        </CardContent></Card>
+      )}
+      {(candidate.status === "ready" && !candidate.pre_screen?.invite_sent_at) && (
+        <Card><CardContent className="space-y-3 pt-6">
+          <p>The interview is ready, but its invitation email was not delivered. Retry delivery after checking email configuration.</p>
+          <Button disabled={isActioning} onClick={() => retryFailedStep("invite")}>Retry invitation email</Button>
+        </CardContent></Card>
+      )}
 
       {/* Confirmation dialog for pre-screen actions (irreversible: send email). */}
       <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
@@ -844,6 +869,22 @@ function PreScreenCard({
   const matched = summary.breakdown?.matched_skills ?? [];
   const missing = summary.breakdown?.missing_must_haves ?? [];
   const rationale = summary.breakdown?.rationale;
+  const fraud = summary.breakdown?.fraud_signals;
+  const fraudIsBlock = fraud?.risk_level === "block";
+  const fraudBadgeClass = fraudIsBlock
+    ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+    : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400";
+  const fraudPanelClass = fraudIsBlock
+    ? "border-red-300 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30"
+    : "border-amber-300 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30";
+  const fraudIconClass = fraudIsBlock
+    ? "text-red-600 dark:text-red-400"
+    : "text-amber-600 dark:text-amber-400";
+  const FRAUD_SIGNAL_LABELS: Record<string, string> = {
+    name_mismatch: "Name mismatch",
+    email_mismatch: "Email mismatch",
+    resume_content_reused: "Resume reused",
+  };
   const showDecisionBadge =
     summary.decision !== null &&
     !(summary.decision === "review" && candidateStatus !== "review_pending");
@@ -871,6 +912,16 @@ function PreScreenCard({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {fraud && (
+            <Badge
+              variant="secondary"
+              className={`flex items-center gap-1 ${fraudBadgeClass}`}
+              title={fraud.signals.map((s) => s.detail).join("\n")}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              {fraudIsBlock ? "Fraud risk" : "Fraud warning"}
+            </Badge>
+          )}
           {showDecisionBadge && summary.decision && (
             <Badge
               variant="secondary"
@@ -889,6 +940,39 @@ function PreScreenCard({
 
       {expanded && (
         <CardContent className="space-y-4">
+          {fraud && (
+            <div
+              className={`rounded-md border p-3 space-y-2 ${fraudPanelClass}`}
+            >
+              <div className="flex items-center gap-2">
+                <AlertTriangle className={`h-4 w-4 ${fraudIconClass}`} />
+                <p className="text-sm font-semibold">
+                  {fraudIsBlock
+                    ? "Identity fraud risk detected"
+                    : "Identity warning"}
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {fraudIsBlock
+                  ? "This application was force-routed to HR review because the resume identity does not match the form, or the file has been submitted before."
+                  : "One identity check did not match cleanly. Review the details below before approving."}
+              </p>
+              <ul className="space-y-1.5">
+                {fraud.signals.map((sig) => (
+                  <li
+                    key={sig.kind}
+                    className="text-xs flex flex-col gap-0.5"
+                  >
+                    <span className="font-medium">
+                      {FRAUD_SIGNAL_LABELS[sig.kind] ?? sig.kind}
+                    </span>
+                    <span className="text-muted-foreground">{sig.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="flex items-center gap-6">
             <div>
               <p className="text-xs uppercase tracking-wider text-muted-foreground">

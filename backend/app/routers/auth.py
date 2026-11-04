@@ -18,7 +18,8 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
-from app.services import auth_service
+from app.schemas.team import InviteAcceptRequest, InvitePreviewResponse
+from app.services import auth_service, invite_service
 from app.utils.audit import audit
 from app.utils.cookies import COOKIE_NAME, clear_session_cookie, set_session_cookie
 from app.utils.security import (
@@ -123,3 +124,53 @@ async def refresh(
     set_session_cookie(response, new_token, settings)
     audit("user.token.refresh", user_id=current_user.id, company_id=current_user.company_id)
     return TokenResponse(access_token=new_token, expires_in=_ttl_seconds())
+
+
+# ---------------------------------------------------------------------------
+# Invite acceptance — public (no auth) endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/invite/{token}", response_model=InvitePreviewResponse)
+async def preview_invite(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Validate an invite token and return company name + invitee email so
+    the accept-invite page can render before the user submits a password.
+
+    404 for unknown / expired / consumed tokens (never leaks which case).
+    """
+    invite, company = await invite_service.get_invite_by_token(db, token)
+    return InvitePreviewResponse(
+        email=invite.email,
+        company_name=company.name,
+        expires_at=invite.expires_at,
+    )
+
+
+@router.post("/invite/{token}/accept", response_model=AuthResponse, status_code=201)
+@limiter.limit("5/minute")
+async def accept_invite(
+    request: Request,
+    token: str,
+    data: InviteAcceptRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Consume an invite, create the new user, set the session cookie.
+
+    The invitee email is fixed by the invite — the client only chooses a
+    name and password. Returns the same shape as ``/auth/signup`` so the
+    frontend can land them straight on /dashboard.
+    """
+    user, company, jwt = await invite_service.accept_invite(
+        db, raw_token=token, name=data.name, password=data.password
+    )
+    set_session_cookie(response, jwt, get_settings())
+    return AuthResponse(
+        user=UserResponse.model_validate(user),
+        company=CompanyResponse.model_validate(company),
+        access_token=jwt,
+        expires_in=_ttl_seconds(),
+    )

@@ -1,6 +1,6 @@
 """Dashboard analytics response schemas.
 
-Mirror of the contract documented in `plans/DASHBOARD_METRICS.md`. Any
+Mirror of the contract documented in `docs/architecture.md`. Any
 change here MUST be reflected there first — that document is the source
 of truth for metric definitions.
 """

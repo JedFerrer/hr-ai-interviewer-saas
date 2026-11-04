@@ -1,0 +1,292 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "react",
+    "nextjs",
+    "jsx-a11y",
+    "typescript",
+    "import",
+    "unicorn",
+    "oxc"
+  ],
+  "categories": {
+    "correctness": "off"
+  },
+  "rules": {
+    "react/display-name": [
+      "error"
+    ],
+    "react/jsx-key": [
+      "error"
+    ],
+    "react/jsx-no-comment-textnodes": [
+      "error"
+    ],
+    "react/jsx-no-duplicate-props": [
+      "error"
+    ],
+    "react/jsx-no-undef": [
+      "error"
+    ],
+    "react/no-children-prop": [
+      "error"
+    ],
+    "react/no-danger-with-children": [
+      "error"
+    ],
+    "react/no-direct-mutation-state": [
+      "error"
+    ],
+    "react/no-find-dom-node": [
+      "error"
+    ],
+    "react/no-is-mounted": [
+      "error"
+    ],
+    "react/no-render-return-value": [
+      "error"
+    ],
+    "react/no-string-refs": [
+      "error"
+    ],
+    "react/no-unescaped-entities": [
+      "error"
+    ],
+    "react/require-render-return": [
+      "error"
+    ],
+    "react/rules-of-hooks": [
+      "error"
+    ],
+    "react/exhaustive-deps": [
+      "warn"
+    ],
+    "react/static-components": [
+      "error"
+    ],
+    "react/use-memo": [
+      "error"
+    ],
+    "react/preserve-manual-memoization": [
+      "error"
+    ],
+    "react/incompatible-library": [
+      "warn"
+    ],
+    "react/immutability": [
+      "error"
+    ],
+    "react/globals": [
+      "error"
+    ],
+    "react/refs": [
+      "error"
+    ],
+    "react/set-state-in-effect": [
+      "error"
+    ],
+    "react/error-boundaries": [
+      "error"
+    ],
+    "react/purity": [
+      "error"
+    ],
+    "react/set-state-in-render": [
+      "error"
+    ],
+    "react/unsupported-syntax": [
+      "warn"
+    ],
+    "nextjs/google-font-display": [
+      "warn"
+    ],
+    "nextjs/google-font-preconnect": [
+      "warn"
+    ],
+    "nextjs/next-script-for-ga": [
+      "warn"
+    ],
+    "nextjs/no-async-client-component": [
+      "warn"
+    ],
+    "nextjs/no-before-interactive-script-outside-document": [
+      "warn"
+    ],
+    "nextjs/no-css-tags": [
+      "warn"
+    ],
+    "nextjs/no-head-element": [
+      "warn"
+    ],
+    "nextjs/no-html-link-for-pages": [
+      "error"
+    ],
+    "nextjs/no-img-element": [
+      "warn"
+    ],
+    "nextjs/no-page-custom-font": [
+      "warn"
+    ],
+    "nextjs/no-styled-jsx-in-document": [
+      "warn"
+    ],
+    "nextjs/no-sync-scripts": [
+      "error"
+    ],
+    "nextjs/no-title-in-document-head": [
+      "warn"
+    ],
+    "nextjs/no-typos": [
+      "warn"
+    ],
+    "nextjs/no-unwanted-polyfillio": [
+      "warn"
+    ],
+    "nextjs/inline-script-id": [
+      "error"
+    ],
+    "nextjs/no-assign-module-variable": [
+      "error"
+    ],
+    "nextjs/no-document-import-in-page": [
+      "error"
+    ],
+    "nextjs/no-duplicate-head": [
+      "error"
+    ],
+    "nextjs/no-head-import-in-document": [
+      "error"
+    ],
+    "nextjs/no-script-component-in-head": [
+      "error"
+    ],
+    "import/no-anonymous-default-export": [
+      "warn"
+    ],
+    "jsx_a11y/alt-text": [
+      "warn",
+      {
+        "elements": [
+          "img"
+        ],
+        "img": [
+          "Image"
+        ]
+      }
+    ],
+    "jsx_a11y/aria-props": [
+      "warn"
+    ],
+    "jsx_a11y/aria-proptypes": [
+      "warn"
+    ],
+    "jsx_a11y/aria-unsupported-elements": [
+      "warn"
+    ],
+    "jsx_a11y/role-has-required-aria-props": [
+      "warn"
+    ],
+    "jsx_a11y/role-supports-aria-props": [
+      "warn"
+    ],
+    "eslint/constructor-super": "error",
+    "eslint/for-direction": "error",
+    "eslint/getter-return": "error",
+    "eslint/no-async-promise-executor": "error",
+    "eslint/no-caller": "error",
+    "eslint/no-class-assign": "error",
+    "eslint/no-compare-neg-zero": "error",
+    "eslint/no-cond-assign": "error",
+    "eslint/no-const-assign": "error",
+    "eslint/no-constant-binary-expression": "error",
+    "eslint/no-constant-condition": "error",
+    "eslint/no-control-regex": "error",
+    "eslint/no-debugger": "error",
+    "eslint/no-delete-var": "error",
+    "eslint/no-dupe-class-members": "error",
+    "eslint/no-dupe-else-if": "error",
+    "eslint/no-dupe-keys": "error",
+    "eslint/no-duplicate-case": "error",
+    "eslint/no-empty-character-class": "error",
+    "eslint/no-empty-pattern": "error",
+    "eslint/no-empty-static-block": "error",
+    "eslint/no-eval": "error",
+    "eslint/no-ex-assign": "error",
+    "eslint/no-extra-boolean-cast": "error",
+    "eslint/no-func-assign": "error",
+    "eslint/no-global-assign": "error",
+    "eslint/no-import-assign": "error",
+    "eslint/no-invalid-regexp": "error",
+    "eslint/no-irregular-whitespace": "error",
+    "eslint/no-iterator": "error",
+    "eslint/no-loss-of-precision": "error",
+    "eslint/no-misleading-character-class": "error",
+    "eslint/no-new-native-nonconstructor": "error",
+    "eslint/no-nonoctal-decimal-escape": "error",
+    "eslint/no-obj-calls": "error",
+    "eslint/no-self-assign": "error",
+    "eslint/no-setter-return": "error",
+    "eslint/no-shadow-restricted-names": "error",
+    "eslint/no-sparse-arrays": "error",
+    "eslint/no-this-before-super": "error",
+    "eslint/no-unassigned-vars": "error",
+    "eslint/no-unreachable": "error",
+    "eslint/no-unsafe-finally": "error",
+    "eslint/no-unsafe-negation": "error",
+    "eslint/no-unsafe-optional-chaining": "error",
+    "eslint/no-unused-expressions": "error",
+    "eslint/no-unused-labels": "error",
+    "eslint/no-unused-private-class-members": "error",
+    "eslint/no-unused-vars": "warn",
+    "eslint/no-useless-backreference": "error",
+    "eslint/no-useless-catch": "error",
+    "eslint/no-useless-escape": "error",
+    "eslint/no-useless-rename": "error",
+    "eslint/no-with": "error",
+    "eslint/require-yield": "error",
+    "eslint/use-isnan": "error",
+    "eslint/valid-typeof": "error",
+    "oxc/bad-array-method-on-arguments": "error",
+    "oxc/bad-char-at-comparison": "error",
+    "oxc/bad-comparison-sequence": "error",
+    "oxc/bad-match-all-arg": "error",
+    "oxc/bad-min-max-func": "error",
+    "oxc/bad-object-literal-comparison": "error",
+    "oxc/bad-replace-all-arg": "error",
+    "oxc/const-comparisons": "error",
+    "oxc/double-comparisons": "error",
+    "oxc/erasing-op": "error",
+    "oxc/missing-throw": "error",
+    "oxc/number-arg-out-of-range": "error",
+    "oxc/only-used-in-recursion": "error",
+    "oxc/uninvoked-array-callback": "error",
+    "typescript/no-duplicate-enum-values": "error",
+    "typescript/no-extra-non-null-assertion": "error",
+    "typescript/no-misused-new": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-this-alias": "error",
+    "typescript/no-unnecessary-parameter-property-assignment": "error",
+    "typescript/no-unsafe-declaration-merging": "error",
+    "typescript/no-useless-empty-export": "error",
+    "typescript/no-wrapper-object-types": "error",
+    "typescript/prefer-as-const": "error",
+    "typescript/prefer-namespace-keyword": "error",
+    "typescript/triple-slash-reference": "error"
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts"
+  ],
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "settings": {
+    "react": {
+      "version": "19.2"
+    }
+  }
+}

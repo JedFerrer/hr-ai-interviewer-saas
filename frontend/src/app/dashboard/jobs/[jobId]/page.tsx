@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 
 import { jobs as jobsApi, candidates as candidatesApi } from "@/lib/api";
-import type { JobPosting, Candidate } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import type { JobPosting, Candidate, CandidateUpdatedEvent } from "@/lib/types";
 import { ComparisonDrawer } from "@/components/comparison-drawer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +63,7 @@ const MIN_COMPARE = 2;
 export default function JobDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const router = useRouter();
+  const { user: currentUser } = useAuth();
   const [job, setJob] = useState<JobPosting | null>(null);
   const [candidateList, setCandidateList] = useState<Candidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -105,6 +107,73 @@ export default function JobDetailPage() {
       .finally(() => setIsLoading(false));
   }, [jobId, fetchCandidates, sortKey, sortOrder]);
 
+  // Keep a ref of current candidate IDs so the SSE handler (which captures
+  // a stale closure) can detect brand-new applicants without reading stale state.
+  const candidateIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    candidateIdsRef.current = new Set(candidateList.map((c) => c.id));
+  }, [candidateList]);
+
+  // Real-time updates: subscribe to the job's SSE stream so background-pipeline
+  // results AND actions taken by other recruiters in the same company appear
+  // here without a refresh. For candidates already in the list we patch the row
+  // in place. For brand-new applicants (not yet in the list) we fetch their
+  // full details and append them, then show a notification.
+  useEffect(() => {
+    if (!jobId) return;
+    const close = jobsApi.streamUpdates(jobId, {
+      onCandidateUpdated: (event: CandidateUpdatedEvent) => {
+        // Suppress no-op self-updates: optimistic UI already applied them.
+        const isSelf =
+          event.actor_user_id !== null &&
+          currentUser !== null &&
+          event.actor_user_id === currentUser.id;
+
+        if (!candidateIdsRef.current.has(event.candidate_id)) {
+          // Brand-new applicant — fetch their full details and add to the list.
+          candidatesApi
+            .get(event.candidate_id)
+            .then((detail) => {
+              setCandidateList((prev) => {
+                if (prev.some((c) => c.id === detail.id)) return prev;
+                return [...prev, detail];
+              });
+              setTotalCount((n) => n + 1);
+              if (!isSelf) {
+                const name = detail.name ?? event.name ?? "A candidate";
+                toast.message(`New application: ${name}`, {
+                  description: `Status: ${detail.status.replace(/_/g, " ")}`,
+                });
+              }
+            })
+            .catch(() => {
+              // Fetch failed — silently ignore; the user can refresh.
+            });
+          return;
+        }
+
+        setCandidateList((prev) => {
+          const idx = prev.findIndex((c) => c.id === event.candidate_id);
+          if (idx === -1) return prev;
+          if (prev[idx].status === event.status) return prev;
+          const next = [...prev];
+          next[idx] = { ...next[idx], status: event.status };
+          return next;
+        });
+
+        // Toast for changes made by other recruiters or by the system, so the
+        // viewer notices the row updating. Skip self-actions to avoid noise.
+        if (isSelf) return;
+        const who = event.actor_name ?? "The system";
+        const candidateName = event.name ?? "a candidate";
+        toast.message(`${who} updated ${candidateName}`, {
+          description: `Status → ${event.status.replace(/_/g, " ")}`,
+        });
+      },
+    });
+    return close;
+  }, [jobId, currentUser]);
+
   const loadMore = async () => {
     setIsLoadingMore(true);
     try {
@@ -121,13 +190,10 @@ export default function JobDetailPage() {
   // Trim selection when the underlying list changes (e.g. status filter
   // hides a previously-selected row) so we never have a stale selection.
   const filteredIds = useFilteredIds(candidateList, statusFilter);
-  useEffect(() => {
-    setSelectedIds((prev) => {
-      const next = new Set<string>();
-      for (const id of prev) if (filteredIds.has(id)) next.add(id);
-      return next.size === prev.size ? prev : next;
-    });
-  }, [filteredIds]);
+  // Adjust only when a selection becomes hidden; avoid an effect on every render.
+  if ([...selectedIds].some((id) => !filteredIds.has(id))) {
+    setSelectedIds(new Set([...selectedIds].filter((id) => filteredIds.has(id))));
+  }
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {

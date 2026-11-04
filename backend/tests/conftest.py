@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncGenerator
 from unittest.mock import patch
 
@@ -11,7 +10,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.config import Settings, get_settings
+from app.config import Settings
 from app.database import get_db
 from app.models import Base
 
@@ -23,22 +22,15 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 def get_test_settings() -> Settings:
     return Settings(
         database_url=TEST_DATABASE_URL,
-        jwt_secret_key="test-secret-key",
+        jwt_secret_key="fictional-test-signing-key-at-least-32-bytes",
         openai_api_key="sk-test-key",
     )
 
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-test_session_factory = async_sessionmaker(
+db_session_factory = async_sessionmaker(
     test_engine, class_=AsyncSession, expire_on_commit=False
 )
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -52,7 +44,7 @@ async def setup_db():
 
 
 async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with test_session_factory() as session:
+    async with db_session_factory() as session:
         yield session
 
 

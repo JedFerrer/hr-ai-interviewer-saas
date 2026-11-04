@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
 import pdfplumber
 from docx import Document as DocxDocument
@@ -23,24 +28,35 @@ def extract_text_from_bytes(content: bytes, filename: str) -> str:
 
     Raises ValueError if format unsupported or no text extracted.
     """
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-
-    if ext == "pdf":
-        return _extract_pdf(content)
-    elif ext == "docx":
-        return _extract_docx(content)
-    else:
-        raise ValueError(f"Unsupported file type '.{ext}'. Accepted: PDF, DOCX")
+    from app.utils.storage import validate_resume_file, validate_resume_content
+    validate_resume_file(filename, len(content))
+    validate_resume_content(filename, content)
+    env = {k: v for k, v in os.environ.items() if k.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH"}}
+    env.update(PYTHONPATH=str(Path(__file__).resolve().parents[2]), PYTHONUTF8="1")
+    with tempfile.TemporaryDirectory(prefix="hr-parser-", dir=os.environ.get("HR_DEMO_TEMP")) as owned:
+        try:
+            result = subprocess.run([sys.executable, "-m", "app.utils.resume_worker", Path(filename).suffix.lower()],
+                input=content, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                env=env, cwd=owned, timeout=12, check=False)
+        except subprocess.TimeoutExpired:
+            raise ValueError("Resume parsing exceeded its time limit") from None
+    if result.returncode != 0 or len(result.stdout) > 400_000:
+        raise ValueError("Resume is malformed, empty, or exceeds parser limits")
+    return result.stdout.decode("utf-8")
 
 
 def _extract_pdf(content: bytes) -> str:
     """Extract text from PDF bytes using pdfplumber."""
     pages: list[str] = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
+        if len(pdf.pages) > 30:
+            raise ValueError("PDF exceeds 30 pages")
         for page in pdf.pages:
             text = page.extract_text()
             if text:
                 pages.append(text)
+                if sum(map(len, pages)) > 100_000:
+                    raise ValueError("Resume text exceeds 100,000 characters")
 
     if not pages:
         raise ValueError("No text could be extracted from PDF. Is this a scanned/image PDF?")
@@ -54,13 +70,18 @@ def _extract_docx(content: bytes) -> str:
 
     if not paragraphs:
         raise ValueError("No text could be extracted from DOCX. Is the document empty?")
-    return "\n\n".join(paragraphs)
+    text = "\n\n".join(paragraphs)
+    if len(text) > 100_000:
+        raise ValueError("Resume text exceeds 100,000 characters")
+    return text
 
 
 def parse_resume_with_llm(
     client: OpenAI, resume_text: str
 ) -> tuple[dict, int, int]:
     """Send resume text to LLM, return (structured_data, prompt_tokens, completion_tokens)."""
+    if _settings.portfolio_demo:
+        raise ValueError("Synchronous provider operation has no demo adapter")
     prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=resume_text)
     response = client.chat.completions.create(
         model=_settings.active_llm_model,
@@ -91,6 +112,7 @@ async def parse_resume_with_llm_async(
 
     prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=resume_text)
     response, _model = await llm_chat_completion(
+        operation="parse", demo_context={"text": resume_text},
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
         json_mode=True,

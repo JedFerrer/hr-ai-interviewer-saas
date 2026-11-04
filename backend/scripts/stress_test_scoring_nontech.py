@@ -10,6 +10,13 @@ between competing candidates for the same role.
 """
 from __future__ import annotations
 
+# Refuse before imports that can connect, write, or expose application data.
+import sys as _guard_sys
+from pathlib import Path as _GuardPath
+_guard_sys.path.insert(0, str(_GuardPath(__file__).resolve().parents[1]))
+from scripts.owned_workspace import require_owned_workspace
+_OWNED_ROOT = require_owned_workspace(providers=True, http_target=False)
+
 import asyncio
 import sys
 from dataclasses import dataclass

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, generate_uuid
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.job_posting import JobPosting
+    from app.models.interview import Interview
 
 
 class Candidate(Base, TimestampMixin):
@@ -25,6 +31,12 @@ class Candidate(Base, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255))
     normalized_email: Mapped[str | None] = mapped_column(String(255), index=True)
     resume_url: Mapped[str | None] = mapped_column(String(500))
+    # SHA-256 of the raw uploaded resume bytes. Indexed so the fraud
+    # detection pass can spot the same file submitted by a different
+    # applicant. Nullable for legacy rows imported before the check existed.
+    resume_content_hash: Mapped[str | None] = mapped_column(
+        String(64), index=True
+    )
     resume_parsed_data: Mapped[dict | None] = mapped_column(JSON)
     # Statuses: applied → processing → ready → in_progress → completed → shortlisted / rejected
     # plus: review_pending (awaiting HR pre-screen approval), error (parse / processing failure)

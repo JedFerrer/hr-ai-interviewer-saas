@@ -21,10 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
+from app.utils.operation_locks import serialized
 from app.database import async_session_factory
 from app.models.candidate import Candidate
 from app.models.interview import Interview
 from app.models.job_posting import JobPosting
+from app.services.candidate_events import publish_candidate_updated
 from app.services.email_service import send_interview_invite
 from app.services.llm_client import get_async_openai_client, llm_chat_completion
 from app.services.prompts import (
@@ -223,12 +225,20 @@ async def apply(
 
     interview_token = secrets.token_urlsafe(24)
 
+    # Hash the raw bytes once, up front. Cheap (SHA-256 over <=10 MB) and
+    # lets the background fraud check do an indexed lookup for prior
+    # candidates who uploaded the exact same file.
+    from app.services.fraud_detection_service import compute_resume_hash
+
+    content_hash = compute_resume_hash(file_content)
+
     candidate = Candidate(
         job_posting_id=job.id,
         name=candidate_name,
         email=candidate_email,
         normalized_email=normalized,
         resume_url=resume_url,
+        resume_content_hash=content_hash,
         status="processing",
         interview_token=interview_token,
     )
@@ -241,7 +251,7 @@ async def apply(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="You have already applied for this position.",
-        )
+        ) from None
     except OperationalError as exc:
         # SQLite "database is locked" or transient PG issue. Surface as 503
         # with Retry-After so the client (and load balancers) can back off
@@ -263,6 +273,7 @@ async def apply(
     return candidate
 
 
+@serialized("candidate", "candidate_id")
 async def process_application_background(
     candidate_id: str,
     job_id: str,
@@ -302,6 +313,8 @@ async def process_application_background(
                 logger.error("Background: job %s not found", job_id)
                 return
 
+            if candidate.status != "processing":
+                return  # duplicate background task/retry must not regenerate work
             client = get_async_openai_client()
             total_pt, total_ct = 0, 0
 
@@ -320,9 +333,10 @@ async def process_application_background(
                 )
                 candidate.status = "error"
                 candidate.pre_screen_decision = "error"
-                candidate.pre_screen_reason = f"Resume could not be parsed: {exc}"
+                candidate.pre_screen_reason = "Resume could not be parsed. Upload a valid text-based PDF or DOCX and reapply."
                 candidate.pre_screened_at = datetime.now(timezone.utc)
                 await _commit_with_retry(db)
+                await publish_candidate_updated(candidate)
                 audit(
                     "candidate.resume_parse_failed",
                     candidate_id=candidate_id,
@@ -332,6 +346,29 @@ async def process_application_background(
                 return
 
             candidate.resume_parsed_data = resume_data
+
+            # 1b. Identity / re-use fraud check. Runs after parsing so we
+            #     can compare the form-supplied identity against the resume,
+            #     and before scoring so a flagged candidate can short-circuit
+            #     auto-invite even on a high score.
+            from app.services.fraud_detection_service import detect_fraud_signals
+
+            fraud_result = await detect_fraud_signals(
+                db=db,
+                candidate_id=candidate_id,
+                form_name=candidate.name or "",
+                form_email=candidate.email or "",
+                resume_data=resume_data,
+                content_hash=candidate.resume_content_hash,
+            )
+            if fraud_result.has_signals:
+                audit(
+                    "candidate.fraud_signals_detected",
+                    candidate_id=candidate_id,
+                    job_id=job_id,
+                    risk_level=fraud_result.risk_level,
+                    signals=[s.kind for s in fraud_result.signals],
+                )
 
             # 2. Score resume vs JD. A scorer failure is non-fatal — we fall
             #    through with score=None, and the decision engine will route
@@ -367,6 +404,13 @@ async def process_application_background(
                     candidate_id,
                 )
 
+            # Surface fraud signals on the breakdown so the HR dashboard can
+            # render them next to the score without a separate API call.
+            if fraud_result.has_signals:
+                if match_breakdown is None:
+                    match_breakdown = {}
+                match_breakdown["fraud_signals"] = fraud_result.to_dict()
+
             candidate.resume_match_score = match_score
             candidate.resume_match_confidence = match_confidence
             candidate.resume_match_breakdown = match_breakdown
@@ -386,6 +430,27 @@ async def process_application_background(
                 score=match_score,
                 confidence=match_confidence,
             )
+
+            # Fraud override: any signal forces HR review. We never
+            # auto-reject (HR may decide it's a legitimate edge case) but
+            # we do strip auto-invite so a stolen high-scoring resume
+            # cannot get an interview link without a human in the loop.
+            if fraud_result.has_signals and outcome.decision == "auto_invite":
+                from app.services.screening_service import ScreeningOutcome as _Outcome
+
+                # Keep the reason concise — full signal details live in the
+                # fraud panel on the candidate detail page.
+                signal_kinds = ", ".join(
+                    s.kind.replace("_", " ") for s in fraud_result.signals
+                )
+                outcome = _Outcome(
+                    decision="review",
+                    reason=(
+                        f"Fraud signals detected ({fraud_result.risk_level}): "
+                        f"{signal_kinds}. See the fraud panel for details."
+                    )[:500],
+                )
+
             candidate.pre_screen_decision = outcome.decision
             candidate.pre_screen_reason = outcome.reason
             candidate.pre_screened_at = datetime.now(timezone.utc)
@@ -419,6 +484,7 @@ async def process_application_background(
                 # Park the candidate; HR will approve/reject from the dashboard.
                 candidate.status = "review_pending"
                 await _commit_with_retry(db)
+                await publish_candidate_updated(candidate)
                 logger.info(
                     "Candidate %s routed to %s (score=%s, mode=%s)",
                     candidate_id,
@@ -439,7 +505,7 @@ async def process_application_background(
                 running_ct=total_ct,
             )
 
-        except Exception as exc:
+        except Exception:
             logger.exception("Background processing failed for candidate %s", candidate_id)
             # Mark candidate with error status using a fresh session (original may be broken)
             try:
@@ -449,10 +515,11 @@ async def process_application_background(
                         candidate.status = "error"
                         candidate.pre_screen_decision = "error"
                         candidate.pre_screen_reason = (
-                            f"Background processing failed: {type(exc).__name__}: {exc}"
+                            "Processing failed. HR can retry processing after checking provider configuration."
                         )[:500]
                         candidate.pre_screened_at = datetime.now(timezone.utc)
                         await _commit_with_retry(err_db)
+                        await publish_candidate_updated(candidate)
             except Exception:
                 logger.exception("Failed to revert candidate status")
     finally:
@@ -517,21 +584,26 @@ async def _build_interview_and_invite(
 
     candidate.status = "ready"
     candidate.interview_link_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    candidate.invite_sent_at = datetime.now(timezone.utc)
+    candidate.invite_sent_at = None
     await _commit_with_retry(db)
+    await publish_candidate_updated(candidate)
 
     interview_link = f"{settings.app_url}/interview/session/{candidate.interview_token}"
-    await send_interview_invite(
+    delivered = await send_interview_invite(
         candidate_email=candidate.email or "",
         candidate_name=candidate.name or "Candidate",
         job_title=job.title,
         company_name=job.company.name if job.company else "Company",
         interview_link=interview_link,
     )
-    logger.info(
-        "Interview invite sent for candidate %s — link: %s",
-        candidate.id, interview_link,
-    )
+    if delivered:
+        candidate.invite_sent_at = datetime.now(timezone.utc)
+        candidate.pre_screen_reason = None
+    else:
+        candidate.pre_screen_reason = "Interview is prepared but email delivery failed. HR can retry the invitation."
+    await _commit_with_retry(db)
+    await publish_candidate_updated(candidate)
+
 
 
 # ---------------------------------------------------------------------------
@@ -557,8 +629,11 @@ async def get_session_landing(
     if not candidate:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Interview not found")
 
+    if candidate.status not in {"ready", "in_progress", "completed"}:
+        raise HTTPException(status_code=404, detail="Interview not available")
+
     # Check link expiry (only for candidates who haven't started yet)
-    if candidate.status == "ready" and candidate.interview_link_expires_at:
+    if candidate.interview_link_expires_at:
         expires = candidate.interview_link_expires_at
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
@@ -582,6 +657,7 @@ async def get_session_landing(
     }
 
 
+@serialized("interview", "interview_token")
 async def begin_session(
     db: AsyncSession,
     interview_token: str,
@@ -605,7 +681,7 @@ async def begin_session(
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Interview not found")
 
     # Check link expiry (only before interview starts)
-    if candidate.status == "ready" and candidate.interview_link_expires_at:
+    if candidate.interview_link_expires_at:
         expires = candidate.interview_link_expires_at
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
@@ -658,8 +734,8 @@ async def begin_session(
         questions=questions_text,
     )
 
-    client = get_async_openai_client()
     opening_response, _model = await llm_chat_completion(
+        operation="opening", demo_context={"question": questions[0]["question"] if questions else "Describe your experience."},
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "Ask the first interview question directly. Be conversational but do not include any greeting or introduction — the candidate has already been welcomed."},
@@ -688,9 +764,11 @@ async def begin_session(
     candidate.status = "in_progress"
 
     await db.commit()
+    await publish_candidate_updated(candidate)
     return interview_token, opening_text, len(questions)
 
 
+@serialized("interview", "interview_token")
 async def process_message(
     db: AsyncSession,
     interview_token: str,
@@ -713,13 +791,19 @@ async def process_message(
     if not interview:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Interview not found")
 
-    if interview.status != "in_progress":
+    if interview.status != "in_progress" or interview.candidate.status != "in_progress":
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=f"Interview is {interview.status}, cannot accept messages",
         )
 
     candidate = interview.candidate
+    if candidate.interview_link_expires_at:
+        expires = candidate.interview_link_expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= expires:
+            raise HTTPException(status_code=410, detail="This interview link has expired.")
     job = interview.job_posting
     questions = interview.planned_questions or []
     current_idx = interview.current_question_index
@@ -897,6 +981,8 @@ async def process_message(
     advanced = current_idx != idx_before
     is_last_question = advanced and not is_complete and current_idx == len(questions) - 1
     await db.commit()
+    if is_complete:
+        await publish_candidate_updated(candidate)
 
     # Auto-evaluate in background after completion.
     # Note: this is fire-and-forget. On worker restart the task is lost; move to
@@ -930,6 +1016,7 @@ async def _generate_questions(
         job_description=job_description,
     )
     response, _model = await llm_chat_completion(
+        operation="questions", demo_context={"count": num_questions},
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
     )
@@ -955,6 +1042,7 @@ async def _evaluate_answer(client: AsyncOpenAI, question: dict, answer: str, res
         resume_summary=(resume_data or {}).get("summary", "Not available"),
     )
     response, _model = await llm_chat_completion(
+        operation="answer", demo_context={},
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
     )
@@ -1020,6 +1108,7 @@ async def _get_interviewer_response(
     messages.append({"role": "user", "content": instruction})
 
     response, _model = await llm_chat_completion(
+        operation="reply", demo_context={"closing": is_closing, "question": forced_question},
         messages=messages,
         temperature=0.5,
     )
@@ -1178,6 +1267,7 @@ async def _generate_jd_questions(
         job_description=job_description,
     )
     response, _model = await llm_chat_completion(
+        operation="questions", demo_context={"count": num_questions},
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
     )
@@ -1203,6 +1293,7 @@ async def _generate_resume_questions(
         job_title=job_title,
     )
     response, _model = await llm_chat_completion(
+        operation="questions", demo_context={"count": num_questions, "category": "resume_verification"},
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
     )

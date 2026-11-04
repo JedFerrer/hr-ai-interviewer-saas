@@ -17,19 +17,13 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import type { SessionLandingResponse } from "@/lib/types";
 import { interview as interviewApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 
-interface SessionInfo {
-  job_title: string;
-  company_name: string;
-  candidate_name: string;
-  total_questions: number;
-  status: string;
-  current_question_index: number;
-}
+type SessionInfo = SessionLandingResponse;
 
 interface Message {
   role: "ai" | "candidate";
@@ -64,9 +58,9 @@ export default function InterviewSessionPage() {
   // Integrity tracking refs (not rendered, so refs are fine)
   const wasPastedRef = useRef(false);
   const tabSwitchCountRef = useRef(0);
-  const lastAiTimestampRef = useRef<number>(Date.now());
+  const lastAiTimestampRef = useRef<number>(0);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow the textarea up to a max height (ChatGPT-style).
@@ -109,6 +103,7 @@ export default function InterviewSessionPage() {
           try {
             const resumed = await interviewApi.sessionStart(token);
             setInterviewToken(resumed.interview_token);
+            lastAiTimestampRef.current = Date.now();
             // Restore progress from the landing data (current_question_index is 0-based)
             const resumedQ = data.current_question_index + 1;
             setProgress(`${resumedQ}/${data.total_questions}`);
@@ -136,18 +131,18 @@ export default function InterviewSessionPage() {
 
   // Auto-scroll messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const pane = messagesScrollRef.current;
+    pane?.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
   }, [messages, isTyping]);
 
   // Countdown timer for redirect after completion
   useEffect(() => {
     if (redirectCountdown === null) return;
-    if (redirectCountdown <= 0) {
-      setPhase("completed");
-      return;
-    }
     const timer = setTimeout(
-      () => setRedirectCountdown(redirectCountdown - 1),
+      () => {
+        if (redirectCountdown <= 1) setPhase("completed");
+        else setRedirectCountdown(redirectCountdown - 1);
+      },
       1000,
     );
     return () => clearTimeout(timer);
@@ -427,7 +422,7 @@ export default function InterviewSessionPage() {
   const { current: qCurrent, total: qTotal } = parseProgress(progress);
 
   return (
-    <div className="flex h-screen flex-col bg-background overflow-hidden">
+    <div className="flex h-[calc(100dvh-var(--portfolio-demo-height,0px))] min-h-96 flex-col bg-background overflow-hidden">
       {/* Sticky Header */}
       <header className="shrink-0 border-b bg-background/80 backdrop-blur-md px-4 py-3 z-10">
         <div className="mx-auto flex max-w-3xl items-center gap-3">
@@ -468,7 +463,7 @@ export default function InterviewSessionPage() {
       </header>
 
       {/* Messages — only this area scrolls */}
-      <div className="flex-1 overflow-y-auto px-4 py-8 min-h-0">
+      <div ref={messagesScrollRef} role="region" aria-label="Interview messages" tabIndex={0} className="flex-1 overflow-y-auto px-4 py-8 min-h-0">
         <div className="mx-auto max-w-3xl space-y-6">
           {/* Resumed banner — only shown when session was auto-resumed on refresh */}
           {sessionInfo?.status === "in_progress" && messages.length > 0 && !isInterviewDone && (
@@ -545,7 +540,6 @@ export default function InterviewSessionPage() {
             </div>
           )}
 
-          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -569,13 +563,14 @@ export default function InterviewSessionPage() {
                   onKeyDown={handleKeyDown}
                   onPaste={() => { wasPastedRef.current = true; }}
                   rows={1}
-                  className="flex-1 resize-none bg-transparent text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+                  className="min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
                   style={{ minHeight: 24, maxHeight: 200 }}
                   disabled={isSending || isTyping}
                 />
                 <Button
                   size="icon"
                   onClick={handleSend}
+                  aria-label="Send response"
                   disabled={isSending || isTyping || !inputMessage.trim()}
                   className="shrink-0 h-8 w-8 rounded-full"
                 >

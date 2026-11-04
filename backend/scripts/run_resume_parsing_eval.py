@@ -12,6 +12,13 @@ Each line is one JSON object. See that file for example schema.
 
 from __future__ import annotations
 
+# Refuse before imports that can connect, write, or expose application data.
+import sys as _guard_sys
+from pathlib import Path as _GuardPath
+_guard_sys.path.insert(0, str(_GuardPath(__file__).resolve().parents[1]))
+from scripts.owned_workspace import require_owned_workspace, owned_path
+_OWNED_ROOT = require_owned_workspace(providers=True, http_target=False)
+
 import argparse
 import asyncio
 import json
@@ -375,6 +382,8 @@ def _serialize(results: list[CaseRunResult]) -> list[dict[str, Any]]:
 
 
 async def _main_async(args: argparse.Namespace) -> int:
+    if args.output:
+        owned_path(args.output)  # refusal before provider calls or writes
     fixture_path = Path(args.cases).resolve()
     cases = _load_cases(fixture_path)
     docx_dir = Path(args.docx_dir).resolve()
@@ -398,7 +407,7 @@ async def _main_async(args: argparse.Namespace) -> int:
     _print_summary(results)
 
     if args.output:
-        output_path = Path(args.output).resolve()
+        output_path = owned_path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(
             json.dumps(_serialize(results), indent=2),

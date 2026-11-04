@@ -9,7 +9,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { auth as authApi, onSessionExpired } from "./api";
+import { auth as authApi, invites as invitesApi, onSessionExpired } from "./api";
 import type { User } from "./types";
 
 interface AuthState {
@@ -26,6 +26,11 @@ interface AuthContextValue extends AuthState {
     name: string;
     company_name: string;
   }) => Promise<void>;
+  acceptInvite: (
+    token: string,
+    name: string,
+    password: string,
+  ) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -74,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * re-schedule using the new TTL returned by the server.
    */
   const scheduleRefresh = useCallback(
-    (expiresInSeconds: number) => {
+    function scheduleNextRefresh(expiresInSeconds: number) {
       clearRefreshTimer();
 
       const leadMs = Math.max(
@@ -86,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshTimerRef.current = setTimeout(async () => {
         try {
           const { expires_in } = await authApi.refresh();
-          scheduleRefresh(expires_in);
+          scheduleNextRefresh(expires_in);
         } catch {
           // Refresh failed — onSessionExpired listener will fire from the
           // /auth/refresh request itself if the cookie is gone. Stop
@@ -156,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isPublic =
         path.startsWith("/login") ||
         path.startsWith("/signup") ||
+        path.startsWith("/accept-invite") ||
         path.startsWith("/interview") ||
         path.startsWith("/report");
       if (!isPublic) {
@@ -197,6 +203,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [scheduleRefresh],
   );
 
+  const acceptInvite = useCallback(
+    async (token: string, name: string, password: string) => {
+      const response = await invitesApi.accept(token, name, password);
+      setState({
+        user: response.user,
+        isLoading: false,
+        isAuthenticated: true,
+      });
+      scheduleRefresh(response.expires_in);
+    },
+    [scheduleRefresh],
+  );
+
   const logout = useCallback(async () => {
     clearRefreshTimer();
     try {
@@ -209,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearRefreshTimer]);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, signup, logout }}>
+    <AuthContext.Provider value={{ ...state, login, signup, acceptInvite, logout }}>
       {children}
     </AuthContext.Provider>
   );

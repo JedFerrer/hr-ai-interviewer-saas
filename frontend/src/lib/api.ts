@@ -3,6 +3,7 @@ import type {
   JobPosting,
   Candidate,
   CandidateDetail,
+  CandidateUpdatedEvent,
   EmailTemplateKind,
   InterviewStartResponse,
   InterviewMessageResponse,
@@ -22,6 +23,9 @@ import type {
   AnalyticsOverview,
   AnalyticsWindow,
   JobAnalytics,
+  InvitePreview,
+  TeamInvite,
+  TeamMember,
 } from "./types";
 
 // All API calls go through the Next.js rewrite proxy so the browser sees
@@ -281,11 +285,41 @@ export const jobs = {
       `/jobs/${id}/candidates?${qs.toString()}`,
     );
   },
+  /**
+   * Subscribe to a Server-Sent Events stream of candidate-status updates
+   * for a job. Returns an unsubscribe function; call it on unmount.
+   *
+   * The cookie session travels via same-origin EventSource automatically
+   * (we proxy `/api/backend` through Next.js). EventSource also handles
+   * reconnection on transient drops out of the box.
+   */
+  streamUpdates: (
+    id: string,
+    handlers: {
+      onCandidateUpdated: (event: CandidateUpdatedEvent) => void;
+      onError?: (event: Event) => void;
+    },
+  ): (() => void) => {
+    const url = `${API_URL}/jobs/${id}/stream`;
+    const es = new EventSource(url, { withCredentials: true });
+    es.addEventListener("candidate_updated", (ev) => {
+      try {
+        const data = JSON.parse((ev as MessageEvent).data) as CandidateUpdatedEvent;
+        handlers.onCandidateUpdated(data);
+      } catch {
+        // Malformed payload — ignore so the stream keeps running.
+      }
+    });
+    if (handlers.onError) es.addEventListener("error", handlers.onError);
+    return () => es.close();
+  },
 };
 
 // Candidates
 export const candidates = {
   get: (id: string) => apiRequest<CandidateDetail>(`/candidates/${id}`),
+  retryInvite: (id: string) => apiRequest<{ sent: boolean }>(`/candidates/${id}/retry-invite`, { method: "POST" }),
+  retryProcessing: (id: string) => apiRequest<{ status: string }>(`/candidates/${id}/retry-processing`, { method: "POST" }),
   shortlist: (id: string) =>
     apiRequest<Candidate>(`/candidates/${id}/shortlist`, {
       method: "POST",
@@ -409,7 +443,7 @@ export const interview = {
 
 // Dashboard analytics. Single endpoint that replaces the old N+1
 // pattern (jobs.list → candidates per job) the dashboard used to do
-// client-side. See `plans/DASHBOARD_METRICS.md` for definitions.
+// client-side. See `docs/architecture.md` for definitions.
 export const analytics = {
   overview: (window: AnalyticsWindow = "30d") =>
     apiRequest<AnalyticsOverview>(
@@ -418,5 +452,36 @@ export const analytics = {
   job: (jobId: string, window: AnalyticsWindow = "30d") =>
     apiRequest<JobAnalytics>(
       `/analytics/jobs/${encodeURIComponent(jobId)}?window=${encodeURIComponent(window)}`,
+    ),
+};
+
+// Team / invites — multi-recruiter support.
+export const team = {
+  members: () =>
+    apiRequest<{ members: TeamMember[] }>("/team/members"),
+  listInvites: () =>
+    apiRequest<{ invites: TeamInvite[] }>("/team/invites"),
+  createInvite: (email: string) =>
+    apiRequest<TeamInvite>("/team/invites", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  revokeInvite: (inviteId: string) =>
+    apiRequest<void>(`/team/invites/${encodeURIComponent(inviteId)}`, {
+      method: "DELETE",
+    }),
+};
+
+// Public (no-auth) invite acceptance flow.
+export const invites = {
+  preview: (token: string) =>
+    apiRequest<InvitePreview>(`/auth/invite/${encodeURIComponent(token)}`),
+  accept: (token: string, name: string, password: string) =>
+    apiRequest<AuthResponse>(
+      `/auth/invite/${encodeURIComponent(token)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify({ name, password }),
+      },
     ),
 };

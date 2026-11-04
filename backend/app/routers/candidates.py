@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import BackgroundTasks, APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,7 +154,8 @@ async def approve_interview(
     (or `error` as a manual rescue path).
     """
     candidate = await candidate_service.approve_pre_screen(
-        db, candidate_id, user.company_id
+        db, candidate_id, user.company_id,
+        actor_user_id=user.id, actor_name=user.name,
     )
     return _build_detail_response(candidate)
 
@@ -167,7 +168,8 @@ async def reject_pre_screen(
 ):
     """HR action: reject a candidate awaiting pre-screen review (no interview)."""
     candidate = await candidate_service.reject_pre_screen(
-        db, candidate_id, user.company_id
+        db, candidate_id, user.company_id,
+        actor_user_id=user.id, actor_name=user.name,
     )
     return _build_detail_response(candidate)
 
@@ -183,7 +185,8 @@ async def shortlist_candidate(
     `POST /candidates/{id}/send-notification` to notify the candidate.
     """
     candidate = await candidate_service.update_candidate_status(
-        db, candidate_id, user.company_id, "shortlisted"
+        db, candidate_id, user.company_id, "shortlisted",
+        actor_user_id=user.id, actor_name=user.name,
     )
     return _build_detail_response(candidate)
 
@@ -199,7 +202,8 @@ async def reject_candidate(
     `POST /candidates/{id}/send-notification` to notify the candidate.
     """
     candidate = await candidate_service.update_candidate_status(
-        db, candidate_id, user.company_id, "rejected"
+        db, candidate_id, user.company_id, "rejected",
+        actor_user_id=user.id, actor_name=user.name,
     )
     return _build_detail_response(candidate)
 
@@ -254,7 +258,7 @@ async def download_resume(
     # Sanitize: ensure path stays within uploads/
     resolved = file_path.resolve()
     uploads_root = Path("uploads").resolve()
-    if not str(resolved).startswith(str(uploads_root)):
+    if not resolved.is_relative_to(uploads_root):
         raise HTTPException(status_code=403, detail="Access denied")
 
     filename = f"{candidate.name.replace(' ', '_')}_resume{file_path.suffix}"
@@ -269,3 +273,19 @@ async def download_resume(
         filename=filename,
         media_type=media_type,
     )
+
+
+@router.post("/{candidate_id}/retry-invite")
+async def retry_interview_invite(candidate_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    delivered = await candidate_service.retry_interview_email(db, candidate_id, user.company_id)
+    if not delivered:
+        raise HTTPException(status_code=503, detail="Email delivery unavailable; retry after checking provider configuration")
+    return {"sent": True}
+
+
+@router.post("/{candidate_id}/retry-processing", status_code=202)
+async def retry_processing(candidate_id: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.interview_service import process_application_background
+    job_id, content, filename = await candidate_service.prepare_processing_retry(db, candidate_id, user.company_id)
+    background_tasks.add_task(process_application_background, candidate_id=candidate_id, job_id=job_id, file_content=content, filename=filename)
+    return {"status": "processing"}

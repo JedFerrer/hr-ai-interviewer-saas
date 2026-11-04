@@ -75,7 +75,7 @@ def two_provider_chain():
         {"name": "deepseek", "api_key": "k1", "model": "deepseek-chat", "base_url": "x"},
         {"name": "openai", "api_key": "k2", "model": "gpt-4.1-mini", "base_url": None},
     ]
-    fake_settings = SimpleNamespace(get_fallback_chain=lambda: chain)
+    fake_settings = SimpleNamespace(portfolio_demo=False, get_fallback_chain=lambda: chain)
     with patch.object(llm_client, "_settings", fake_settings):
         yield chain
 
@@ -176,7 +176,7 @@ async def test_json_mode_skipped_for_anthropic() -> None:
     chain = [
         {"name": "anthropic", "api_key": "k", "model": "claude", "base_url": "x"},
     ]
-    fake_settings = SimpleNamespace(get_fallback_chain=lambda: chain)
+    fake_settings = SimpleNamespace(portfolio_demo=False, get_fallback_chain=lambda: chain)
     with patch.object(llm_client, "_settings", fake_settings):
         primary, primary_create = _stub_client([_success_response()])
         with patch.object(llm_client, "_build_client", side_effect=[primary]):

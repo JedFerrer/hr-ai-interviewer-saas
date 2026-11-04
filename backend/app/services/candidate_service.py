@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.candidate import Candidate
+from app.utils.operation_locks import serialized
 from app.models.evaluation import EvaluationRecord
 from app.models.interview import Interview
 from app.models.job_posting import JobPosting
@@ -63,6 +64,7 @@ async def get_candidate_detail(
             selectinload(Candidate.job_posting).selectinload(JobPosting.company),
         )
         .where(Candidate.id == candidate_id)
+        .execution_options(populate_existing=True)
     )
     candidate = result.scalar_one_or_none()
     if not candidate:
@@ -75,8 +77,15 @@ async def get_candidate_detail(
     return candidate
 
 
+@serialized("candidate", "candidate_id")
 async def update_candidate_status(
-    db: AsyncSession, candidate_id: str, company_id: str, new_status: str
+    db: AsyncSession,
+    candidate_id: str,
+    company_id: str,
+    new_status: str,
+    *,
+    actor_user_id: str | None = None,
+    actor_name: str | None = None,
 ) -> Candidate:
     """Update candidate status (shortlist/reject). Enforces company ownership.
 
@@ -85,14 +94,24 @@ async def update_candidate_status(
     intentionally decoupled so HR can change their mind without immediately
     blasting the candidate. Use `send_status_notification()` to dispatch the
     email when ready.
+
+    The optional ``actor_*`` params identify the human who triggered the
+    change so the SSE event can render “Alice rejected John” in other
+    recruiters' UIs.
     """
+    from app.services.candidate_events import publish_candidate_updated
+
     candidate = await get_candidate_detail(db, candidate_id, company_id)
     candidate.status = new_status
     await db.commit()
     await db.refresh(candidate)
+    await publish_candidate_updated(
+        candidate, actor_user_id=actor_user_id, actor_name=actor_name
+    )
     return candidate
 
 
+@serialized("candidate", "candidate_id")
 async def send_status_notification(
     db: AsyncSession,
     candidate_id: str,
@@ -125,6 +144,9 @@ async def send_status_notification(
             detail="Candidate has no email address on file.",
         )
 
+    if kind in {"shortlist", "reject"} and STATUS_TO_EMAIL_KIND.get(candidate.status) != kind:
+        raise HTTPException(status_code=409, detail="Notification must match the current candidate status")
+
     previous_kind = candidate.last_status_email_kind
     # Only shortlist/reject conflict with each other. status_correction is
     # explicitly an apology / clarification and can always be sent.
@@ -156,13 +178,19 @@ async def send_status_notification(
     return candidate, sent
 
 
+@serialized("candidate", "candidate_id")
 async def approve_pre_screen(
-    db: AsyncSession, candidate_id: str, company_id: str
+    db: AsyncSession,
+    candidate_id: str,
+    company_id: str,
+    *,
+    actor_user_id: str | None = None,
+    actor_name: str | None = None,
 ) -> Candidate:
     """HR approves a `review_pending` candidate → generate interview + send invite.
 
-    Idempotent-ish: if the candidate is already `ready`/`in_progress`/etc.,
-    we return the current state without re-sending the invite. Only callable
+    Already-ready/in-progress candidates are rejected without regenerating
+    or re-sending the invite. Only callable
     on candidates currently in `review_pending` (or `error` as a manual
     rescue path); everything else raises 409.
     """
@@ -185,6 +213,9 @@ async def approve_pre_screen(
             detail="Resume parsing did not complete; cannot generate an interview.",
         )
 
+    if candidate.interview is not None:
+        raise HTTPException(status_code=409, detail="Interview already exists; retry invitation delivery instead of regenerating")
+
     # Lazy imports keep candidate_service free of LLM/email deps at module
     # load and avoid a circular import with interview_service.
     from app.services.interview_service import _build_interview_and_invite
@@ -203,14 +234,28 @@ async def approve_pre_screen(
 
     # Refresh to pull in any committed changes from _build_interview_and_invite.
     await db.refresh(candidate)
+
+    # _build_interview_and_invite already publishes a system-actor event
+    # (status flips to "ready"). Re-publish here with the HR actor so the
+    # other recruiters see who approved them.
+    from app.services.candidate_events import publish_candidate_updated
+
+    await publish_candidate_updated(
+        candidate, actor_user_id=actor_user_id, actor_name=actor_name
+    )
     return candidate
 
 
 async def reject_pre_screen(
-    db: AsyncSession, candidate_id: str, company_id: str
+    db: AsyncSession,
+    candidate_id: str,
+    company_id: str,
+    *,
+    actor_user_id: str | None = None,
+    actor_name: str | None = None,
 ) -> Candidate:
     """HR rejects a `review_pending` candidate. Marks the candidate rejected and
-    optionally fires the standard reject email when the job opt-in is on.
+    never sends email; delivery requires the explicit notification action.
     """
     candidate = await get_candidate_detail(db, candidate_id, company_id)
 
@@ -222,7 +267,14 @@ async def reject_pre_screen(
             ),
         )
 
-    return await update_candidate_status(db, candidate_id, company_id, "rejected")
+    return await update_candidate_status(
+        db,
+        candidate_id,
+        company_id,
+        "rejected",
+        actor_user_id=actor_user_id,
+        actor_name=actor_name,
+    )
 
 
 async def _dispatch_status_email(
@@ -367,3 +419,46 @@ async def list_candidates(
         for row in rows
     ]
     return items, total
+
+
+@serialized("candidate", "candidate_id")
+async def retry_interview_email(db: AsyncSession, candidate_id: str, company_id: str) -> bool:
+    from app.config import get_settings
+    from app.services.email_service import send_interview_invite
+    candidate = await get_candidate_detail(db, candidate_id, company_id)
+    if candidate.status != "ready" or candidate.invite_sent_at is not None or not candidate.interview:
+        raise HTTPException(status_code=409, detail="No pending interview email to retry")
+    expires = candidate.interview_link_expires_at
+    if expires and (expires.replace(tzinfo=timezone.utc) if expires.tzinfo is None else expires) <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=409, detail="Interview link expired; do not resend this invitation")
+    delivered = await send_interview_invite(candidate_email=candidate.email or "", candidate_name=candidate.name or "Candidate",
+        job_title=candidate.job_posting.title, company_name=candidate.job_posting.company.name,
+        interview_link=f"{get_settings().app_url}/interview/session/{candidate.interview_token}")
+    if delivered:
+        candidate.invite_sent_at = datetime.now(timezone.utc)
+        candidate.pre_screen_reason = None
+        await db.commit()
+    return delivered
+
+
+@serialized("candidate", "candidate_id")
+async def prepare_processing_retry(db: AsyncSession, candidate_id: str, company_id: str):
+    from pathlib import Path
+    from app.utils.storage import MAX_FILE_SIZE, validate_resume_file, validate_resume_content
+    candidate = await get_candidate_detail(db, candidate_id, company_id)
+    if candidate.status != "error" or candidate.interview is not None:
+        raise HTTPException(status_code=409, detail="Only failed applications without an interview can be reprocessed")
+    path = Path(candidate.resume_url or "").resolve()
+    if not path.is_relative_to(Path("uploads").resolve()) or not path.is_file():
+        raise HTTPException(status_code=409, detail="Original resume unavailable; candidate must reapply with HR assistance")
+    with path.open("rb") as file:
+        content = file.read(MAX_FILE_SIZE + 1)
+    try:
+        validate_resume_file(path.name, len(content))
+        validate_resume_content(path.name, content)
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Original resume is invalid; candidate must reapply with HR assistance") from None
+    candidate.status = "processing"
+    candidate.pre_screen_reason = "Processing retry requested"
+    await db.commit()
+    return candidate.job_posting_id, content, path.name

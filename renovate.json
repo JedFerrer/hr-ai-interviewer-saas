@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["pip-compile", "npm", "github-actions"],
+  "pip-compile": {
+    "managerFilePatterns": ["/^backend/requirements\\.lock$/", "/^security/requirements\\.lock$/"]
+  },
+  "pip_requirements": { "enabled": false },
+  "constraints": { "python": "==3.11.9", "node": "==22.16.0", "uv": "==0.12.1" },
+  "schedule": ["before 6am on monday"],
+  "timezone": "Asia/Manila",
+  "automerge": false,
+  "lockFileMaintenance": { "enabled": true }
+}
