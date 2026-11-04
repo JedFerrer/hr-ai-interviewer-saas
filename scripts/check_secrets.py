@@ -121,7 +121,9 @@ def main():
     findings = []
     unreadable = []
     with tempfile.TemporaryDirectory(prefix="hr-secret-scan-") as directory:
-        export = Path(directory)
+        # detect-secrets compares real paths with cwd by string slicing. Windows
+        # runner TEMP may use an 8.3 alias; expand it before setting scanner cwd.
+        export = Path(directory).resolve()
         # Prove the scanner actually traversed this export and detects new secrets.
         (export / "canary.txt").write_text('password = "' + secrets.token_urlsafe(32) + '"')
         mapping = {}

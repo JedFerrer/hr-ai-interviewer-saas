@@ -1,7 +1,7 @@
 {
   "format": "sha256-lf-text-path-lines-v2",
   "count": 279,
-  "digest": "79445d569004cd98ae6befc3a337ff919fd336874fa99e3d117b9b618dccf86e",
+  "digest": "9e4c5e4c3e83fb6cd47a7e1687ccd019291da04826aeef27aa640b2cd279d07e",
   "files": [
     {
       "path": ".env.example",
@@ -1300,8 +1300,8 @@
     },
     {
       "path": "scripts/check_secrets.py",
-      "size": 8526,
-      "sha256": "a23ab7f469b6d5bb791ae2e2ad38097f11c78f5f36f1ce6cab6683486c857102"
+      "size": 8699,
+      "sha256": "feef8368658cdba9c6257fbfaea79dbafae6240a861094b6c4fda17f447d9ec2"
     },
     {
       "path": "scripts/cleanup_checks.py",
