@@ -54,7 +54,9 @@ caches may be reused, but every installation and production build is fresh.
 
 ## Jobs and cleanup
 
-`.github/workflows/quality.yml` runs on push, pull request and manual dispatch.
+`.github/workflows/quality.yml` runs on pull requests, pushes to `main`, and manual
+dispatch. Feature-branch pushes do not start a separate push run; updating an open
+PR runs its checks. A merge into `main` runs checks on the resulting commit.
 Recommended future required job names: `backend`, `frontend`, `windows-demo`,
 `browser-smoke`, `dependencies`, `secrets`. Do not enable protections until the
 owner has reviewed findings and observed hosted runs. No hosted run is claimed.

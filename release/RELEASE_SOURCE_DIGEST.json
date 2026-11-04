@@ -1,7 +1,7 @@
 {
   "format": "sha256-lf-text-path-lines-v2",
   "count": 296,
-  "digest": "86fd5339e50d88df22685759e81f8067edf6ecd4055c2e78376e90476fb0d196",
+  "digest": "4fd8570f3b0c9023b0a25b429b2d48d4e6a0c8503c594a3e2b6b939522021efd",
   "files": [
     {
       "path": ".env.example",
@@ -30,8 +30,8 @@
     },
     {
       "path": ".github/workflows/quality.yml",
-      "size": 8000,
-      "sha256": "6b4f21b6cf94985cc4d9ee801955037f68af281ff6f104a568a2280b2ae0f5dc"
+      "size": 8021,
+      "sha256": "46a6a3bfffab33678ea0323ce1dbe2e519fc98b06dafb97ef849a5c16d1d3c1e"
     },
     {
       "path": ".gitignore",
@@ -975,8 +975,8 @@
     },
     {
       "path": "docs/quality-checks.md",
-      "size": 10366,
-      "sha256": "e40b67949325304d523f56d87bd3aaf04bd0bc47f0bafcc75e0576f496e91d23"
+      "size": 10530,
+      "sha256": "aa269b48fdad6a67fa149eab68466c679e5abd75de5c51a9732ef0be89ca10d1"
     },
     {
       "path": "docs/real-provider-acceptance.md",
