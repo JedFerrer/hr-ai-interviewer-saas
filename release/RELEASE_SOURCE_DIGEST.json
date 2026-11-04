@@ -1,12 +1,17 @@
 {
   "format": "sha256-lf-text-path-lines-v2",
-  "count": 278,
-  "digest": "51a994ce67a2ff645821db79f10870836196bdaa588284e1f6b7a60de0e77b56",
+  "count": 279,
+  "digest": "93286388b80991253704f4cae71ad792b7bab1a123812dbc6ecffba5cee2714c",
   "files": [
     {
       "path": ".env.example",
       "size": 1673,
       "sha256": "cee4b147aeb895bddbb9a1649197bb211c4dcf6f764db44ba83c0ee144591574"
+    },
+    {
+      "path": ".gitattributes",
+      "size": 106,
+      "sha256": "ade358a04aafc4066a1504c45c9097f067cf62485464a1560ee9644f9aabd360"
     },
     {
       "path": ".github/ISSUE_TEMPLATE/bug_report.md",
@@ -1250,8 +1255,8 @@
     },
     {
       "path": "release/RELEASE_SOURCE_FILES.txt",
-      "size": 9773,
-      "sha256": "21ee502a28c14fe6abbdac216187aded28239bcba1a04946606ebf8f0df1a19f"
+      "size": 9788,
+      "sha256": "1c96bebf74d4bc9517d20411567a895501b645b4e5a3dc158905390c47952d3c"
     },
     {
       "path": "release/RELEASE_SOURCE_INVENTORY.md",
