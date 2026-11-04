@@ -7,6 +7,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, generate_uuid
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.user import User
+    from app.models.job_posting import JobPosting
+
 
 class Company(Base, TimestampMixin):
     __tablename__ = "companies"

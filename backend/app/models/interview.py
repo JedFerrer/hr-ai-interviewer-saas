@@ -10,6 +10,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, generate_uuid
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.candidate import Candidate
+    from app.models.job_posting import JobPosting
+    from app.models.evaluation import EvaluationRecord
+
 
 class Interview(Base):
     __tablename__ = "interviews"

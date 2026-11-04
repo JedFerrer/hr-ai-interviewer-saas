@@ -3,6 +3,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "sonner";
 import "./globals.css";
+import { PortfolioDemoBanner } from "@/components/portfolio-demo-banner";
 
 export const metadata: Metadata = {
   title: "HireAI — AI-Powered Interviews",
@@ -15,12 +16,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-        />
-      </head>
       <body
         className="min-h-screen font-sans antialiased"
         style={{ fontFamily: "'Inter', sans-serif" }}
@@ -32,6 +27,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AuthProvider>
+            {process.env.PORTFOLIO_DEMO === "1" && <PortfolioDemoBanner />}
             {children}
             {/*
              * `pointer-events-auto` on the Toaster (and its inner toasts) is

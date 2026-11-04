@@ -1,0 +1,15 @@
+target-version = "py311"
+# Correctness baseline, intentionally independent of evolving Ruff defaults.
+# Formatting/import sorting are not release gates.
+[lint]
+select = ["E4", "E7", "E9", "F", "B"]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File", "fastapi.Form", "fastapi.Header", "fastapi.Cookie"]
+
+[lint.per-file-ignores]
+# Entry points install logging, ownership checks or sys.path before app imports.
+"backend/app/main.py" = ["E402"]
+"backend/scripts/*.py" = ["E402"]
+"run_evaluation.py" = ["E402"]
+"run_interview.py" = ["E402"]

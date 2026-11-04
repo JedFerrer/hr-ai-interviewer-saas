@@ -33,6 +33,32 @@ export interface MeResponse {
   expires_in: number;
 }
 
+// === Team / Invites ===
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  is_active: boolean;
+}
+
+export interface TeamInvite {
+  id: string;
+  email: string;
+  role: string;
+  invited_by_user_id: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+export interface InvitePreview {
+  email: string;
+  company_name: string;
+  expires_at: string;
+}
+
 // === Jobs ===
 export interface InterviewConfig {
   num_questions: number;
@@ -87,6 +113,27 @@ export type CandidateStatus =
   | "error";
 
 export type PreScreenDecision = "auto_invite" | "review" | "reject" | "error";
+
+/**
+ * Server-Sent Event payload for real-time candidate-status updates.
+ *
+ * Emitted by both the background screening pipeline (`actor_user_id` is
+ * `null` — “system”) and by manual HR actions (`actor_user_id` is the
+ * acting user; `actor_name` is the display name for toasts).
+ *
+ * The frontend uses `actor_user_id` to suppress no-op self-updates after
+ * an optimistic UI patch.
+ */
+export interface CandidateUpdatedEvent {
+  type: "candidate_updated";
+  candidate_id: string;
+  job_id: string;
+  status: CandidateStatus;
+  name: string | null;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  ts: string;
+}
 
 export interface Candidate {
   id: string;
@@ -200,6 +247,19 @@ export interface PreScreenSummary {
       recall: number;
       evidence: Record<string, string>;
     };
+    /**
+     * Identity / re-use fraud signals raised by the pre-screen pipeline.
+     * Only present when at least one signal fired. `risk_level === "block"`
+     * means the candidate was force-routed to HR review even on a passing
+     * score; `"warn"` is a softer flag for HR's attention.
+     */
+    fraud_signals?: {
+      risk_level: "warn" | "block";
+      signals: Array<{
+        kind: "name_mismatch" | "email_mismatch" | "resume_content_reused";
+        detail: string;
+      }>;
+    };
   } | null;
   pre_screened_at: string | null;
   invite_sent_at: string | null;
@@ -254,6 +314,7 @@ export interface SessionLandingResponse {
   candidate_name: string;
   total_questions: number;
   status: string;
+  current_question_index: number;
 }
 
 export interface SessionStartResponse {
@@ -319,4 +380,112 @@ export interface NotificationConflictDetail {
   previous_kind: EmailTemplateKind;
   requested_kind: EmailTemplateKind;
   last_sent_at: string | null;
+}
+
+// === Dashboard analytics (mirror of docs/architecture.md) ===
+export type AnalyticsWindow = "7d" | "30d" | "90d" | "all";
+
+export interface AnalyticsKPIs {
+  active_jobs: number;
+  applications: number;
+  pending_review: number;
+  /** 0..1 ratio. Null when there were no invites in the window. */
+  completion_rate: number | null;
+  /** USD per completed interview. Null when no interviews completed. */
+  avg_cost_per_interview_usd: number | null;
+  completed_awaiting_decision: number;
+}
+
+export interface AnalyticsFunnel {
+  applied: number;
+  under_review: number;
+  invited: number;
+  started: number;
+  completed: number;
+  shortlisted: number;
+  rejected: number;
+}
+
+export interface AnalyticsActionItem {
+  candidate_id: string;
+  job_id: string;
+  name: string | null;
+  email: string | null;
+  job_title: string;
+  since: string | null;
+}
+
+export interface AnalyticsActionBucket {
+  count: number;
+  items: AnalyticsActionItem[];
+}
+
+export interface AnalyticsActionNeeded {
+  pending_review: AnalyticsActionBucket;
+  awaiting_decision: AnalyticsActionBucket;
+  stalled_invites: AnalyticsActionBucket;
+}
+
+export interface AnalyticsJobHealthRow {
+  id: string;
+  title: string;
+  status: "active" | "paused";
+  candidate_count: number;
+  pending_review: number;
+  completion_rate: number | null;
+  avg_score: number | null;
+  avg_cost: number | null;
+  median_time_to_complete_minutes: number | null;
+}
+
+export interface AnalyticsTrendPoint {
+  /** UTC date in YYYY-MM-DD. Zero-filled for days with no activity. */
+  date: string;
+  applications: number;
+  completed: number;
+}
+
+export interface AnalyticsCalibration {
+  /** Number of `auto_invite` predictions with HR ground truth. */
+  sample_size: number;
+  /** Below this `agreement_rate` is null and UI should hide the headline. */
+  min_sample: number;
+  agreement_rate: number | null;
+  auto_invite_n: number;
+  auto_invite_agreed: number;
+  total_predictions: number;
+}
+
+export interface AnalyticsOverview {
+  window: AnalyticsWindow;
+  /** ISO timestamp; null when window === "all". */
+  window_start: string | null;
+  generated_at: string;
+  kpis: AnalyticsKPIs;
+  funnel: AnalyticsFunnel;
+  action_needed: AnalyticsActionNeeded;
+  jobs: AnalyticsJobHealthRow[];
+  trends: AnalyticsTrendPoint[];
+  calibration: AnalyticsCalibration;
+}
+
+export interface AnalyticsHistogramBucket {
+  lo: number;
+  hi: number;
+  label: string;
+  count: number;
+}
+
+export interface JobAnalytics {
+  job_id: string;
+  job_title: string;
+  window: AnalyticsWindow;
+  window_start: string | null;
+  generated_at: string;
+  funnel: AnalyticsFunnel;
+  score_histogram: AnalyticsHistogramBucket[];
+  decision_breakdown: Record<string, number>;
+  avg_score: number | null;
+  avg_cost: number | null;
+  completion_rate: number | null;
 }

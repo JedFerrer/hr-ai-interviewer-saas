@@ -5,6 +5,8 @@ Uses Redis when REDIS_URL is set, otherwise falls back to in-memory storage.
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -15,12 +17,18 @@ from app.config import get_settings
 
 
 def _client_key(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "anonymous"
+    peer = request.client.host if request.client else "anonymous"
+    # Never read client-controlled X-Forwarded-For. The supported custom Next
+    # server derives identity from its socket and authenticates it to this API.
+    cfg = get_settings()
+    if peer in cfg.trusted_proxy_ips and cfg.proxy_auth_secret:
+        supplied = request.headers.get("x-hr-proxy-token", "")
+        if hmac.compare_digest(supplied, cfg.proxy_auth_secret):
+            try:
+                return str(ipaddress.ip_address(request.headers.get("x-hr-client-ip", "")))
+            except ValueError:
+                pass
+    return peer
 
 
 _settings = get_settings()

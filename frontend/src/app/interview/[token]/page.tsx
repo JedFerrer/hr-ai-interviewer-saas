@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   Briefcase,
   Building2,
+  ChevronDown,
+  ChevronUp,
   Loader2,
   Upload,
   CheckCircle2,
@@ -45,6 +47,11 @@ export default function ApplicationPage() {
   // Post-submit state
   const [submitted, setSubmitted] = useState(false);
 
+  // JD expand/collapse
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const descRef = useRef<HTMLDivElement>(null);
+
   // Load job info
   useEffect(() => {
     interviewApi
@@ -53,6 +60,13 @@ export default function ApplicationPage() {
       .catch((err) => setError(err.message))
       .finally(() => setIsLoadingJob(false));
   }, [token]);
+
+  // Detect whether the description overflows its collapsed height
+  useEffect(() => {
+    if (descRef.current) {
+      setIsOverflowing(descRef.current.scrollHeight > descRef.current.clientHeight);
+    }
+  }, [jobInfo]);
 
   const handleSubmit = async () => {
     if (!candidateName.trim() || !candidateEmail.trim()) {
@@ -144,9 +158,36 @@ export default function ApplicationPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            {jobInfo.description}
-          </p>
+          {/* Job description — collapsed to ~5 lines, expandable */}
+          <div className="rounded-lg border bg-muted/40 p-3">
+            <div
+              ref={descRef}
+              className={`text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap overflow-hidden transition-all duration-300 ${
+                descExpanded ? "max-h-none" : "max-h-30"
+              }`}
+            >
+              {jobInfo.description}
+            </div>
+            {(isOverflowing || descExpanded) && (
+              <button
+                type="button"
+                onClick={() => setDescExpanded((v) => !v)}
+                className="mt-2 flex items-center gap-1 text-xs font-medium text-primary hover:underline focus:outline-none"
+              >
+                {descExpanded ? (
+                  <>
+                    <ChevronUp className="h-3.5 w-3.5" />
+                    Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                    Show full description
+                  </>
+                )}
+              </button>
+            )}
+          </div>
 
           <div className="space-y-4 border-t pt-4">
             <div className="space-y-2">

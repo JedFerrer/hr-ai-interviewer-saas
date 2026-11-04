@@ -10,6 +10,7 @@ from app.models.job_posting import JobPosting
 from app.models.screening_outcome import ScreeningOutcome
 from app.models.share_token import CandidateShareToken
 from app.models.user import User
+from app.models.user_invite import UserInvite
 
 __all__ = [
     "Base",
@@ -22,4 +23,5 @@ __all__ = [
     "JobPosting",
     "ScreeningOutcome",
     "User",
+    "UserInvite",
 ]

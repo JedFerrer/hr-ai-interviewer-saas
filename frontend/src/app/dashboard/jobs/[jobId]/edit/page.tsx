@@ -68,10 +68,6 @@ export default function EditJobPage() {
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
 
-  // Status-email toggle (also managed outside RHF since it's a controlled
-  // boolean and not a registered field).
-  const [autoSendEmails, setAutoSendEmails] = useState(false);
-
   // Screening policy state. Defaults match the backend's hybrid defaults
   // (75 auto-invite / 55 review) so existing jobs upgrading from `auto_all`
   // get sensible thresholds the moment they switch modes.
@@ -99,7 +95,6 @@ export default function EditJobPage() {
       .then(({ job }) => {
         setJob(job);
         setSkills(job.required_skills ?? []);
-        setAutoSendEmails(job.auto_send_status_emails ?? false);
         setScreeningMode(job.screening_mode ?? "hybrid_threshold");
         setAutoInviteThreshold(job.auto_invite_threshold ?? 75);
         setReviewThreshold(job.review_threshold ?? 55);
@@ -172,7 +167,6 @@ export default function EditJobPage() {
         location: data.location || null,
         employment_type: data.employment_type,
         required_skills: skills,
-        auto_send_status_emails: autoSendEmails,
         screening_mode: screeningMode,
         auto_invite_threshold: autoInviteThreshold,
         review_threshold: reviewThreshold,
@@ -468,43 +462,6 @@ export default function EditJobPage() {
             {screeningError && (
               <p className="text-sm text-destructive">{screeningError}</p>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Notifications */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Candidate notifications</CardTitle>
-            <CardDescription>
-              Control which automated emails candidates receive about their
-              status on this job.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <label className="flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                checked={autoSendEmails}
-                onChange={(e) => setAutoSendEmails(e.target.checked)}
-                className="mt-0.5 h-4 w-4 cursor-pointer rounded border-input accent-primary"
-              />
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">
-                  Send status emails automatically
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  When a candidate is shortlisted or rejected, send them the
-                  corresponding email using your{" "}
-                  <Link
-                    href="/dashboard/settings/email-templates"
-                    className="underline hover:text-foreground"
-                  >
-                    company templates
-                  </Link>
-                  .
-                </p>
-              </div>
-            </label>
           </CardContent>
         </Card>
 

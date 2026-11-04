@@ -20,7 +20,7 @@ from app.models import (
     User,
 )
 from app.services.share_service import _hash_token
-from tests.conftest import test_session_factory
+from tests.conftest import db_session_factory
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ async def _build_candidate_with_evaluation(
 
     Returns a dict of useful IDs for the test.
     """
-    async with test_session_factory() as session:
+    async with db_session_factory() as session:
         # The signed-up user already created a company; reuse it.
         user_q = await session.execute(select(User).where(User.email == company_email))
         user = user_q.scalar_one()
@@ -176,7 +176,7 @@ async def test_public_report_expired_token_returns_404(
     token = create.json()["token"]
 
     # Force-expire the token in the DB.
-    async with test_session_factory() as session:
+    async with db_session_factory() as session:
         result = await session.execute(
             select(CandidateShareToken).where(
                 CandidateShareToken.token_hash == _hash_token(token)
@@ -245,7 +245,7 @@ async def test_share_link_stored_hashed(client: AsyncClient, seeded: dict):
     )
     raw = create.json()["token"]
 
-    async with test_session_factory() as session:
+    async with db_session_factory() as session:
         result = await session.execute(select(CandidateShareToken))
         rows = list(result.scalars().all())
         assert len(rows) == 1
@@ -260,7 +260,7 @@ async def test_share_link_stored_hashed(client: AsyncClient, seeded: dict):
 
 
 @pytest.mark.asyncio
-async def test_shortlist_sends_email_when_toggle_on(
+async def test_shortlist_manual_notification_uses_default_template(
     client: AsyncClient, seeded: dict
 ):
     sender = AsyncMock(return_value=True)
@@ -269,6 +269,13 @@ async def test_shortlist_sends_email_when_toggle_on(
             f"/candidates/{seeded['candidate_id']}/shortlist",
             headers=seeded["headers"],
         )
+        sender.assert_not_awaited()
+        notification = await client.post(
+            f"/candidates/{seeded['candidate_id']}/send-notification",
+            json={"kind": "shortlist"}, headers=seeded["headers"],
+        )
+        assert notification.status_code == 200
+        assert notification.json()["sent"] is True
     assert resp.status_code == 200
     sender.assert_awaited_once()
     kwargs = sender.await_args.kwargs
@@ -279,7 +286,7 @@ async def test_shortlist_sends_email_when_toggle_on(
 
 
 @pytest.mark.asyncio
-async def test_reject_sends_email_when_toggle_on(
+async def test_reject_manual_notification_uses_default_template(
     client: AsyncClient, seeded: dict
 ):
     sender = AsyncMock(return_value=True)
@@ -288,6 +295,13 @@ async def test_reject_sends_email_when_toggle_on(
             f"/candidates/{seeded['candidate_id']}/reject",
             headers=seeded["headers"],
         )
+        sender.assert_not_awaited()
+        notification = await client.post(
+            f"/candidates/{seeded['candidate_id']}/send-notification",
+            json={"kind": "reject"}, headers=seeded["headers"],
+        )
+        assert notification.status_code == 200
+        assert notification.json()["sent"] is True
     assert resp.status_code == 200
     sender.assert_awaited_once()
     kwargs = sender.await_args.kwargs
@@ -319,11 +333,15 @@ async def test_status_email_idempotent_on_repeat_within_window(
             f"/candidates/{seeded['candidate_id']}/shortlist",
             headers=seeded["headers"],
         )
+        first = await client.post(f"/candidates/{seeded['candidate_id']}/send-notification", json={"kind": "shortlist"}, headers=seeded["headers"])
+        assert first.json()["sent"] is True
         # Second shortlist of an already-shortlisted candidate: no email.
         await client.post(
             f"/candidates/{seeded['candidate_id']}/shortlist",
             headers=seeded["headers"],
         )
+        second = await client.post(f"/candidates/{seeded['candidate_id']}/send-notification", json={"kind": "shortlist"}, headers=seeded["headers"])
+        assert second.json()["sent"] is False
     assert sender.await_count == 1
 
 
@@ -383,6 +401,9 @@ async def test_custom_template_used_when_present(
             f"/candidates/{seeded['candidate_id']}/shortlist",
             headers=seeded["headers"],
         )
+        sender.assert_not_awaited()
+        response = await client.post(f"/candidates/{seeded['candidate_id']}/send-notification", json={"kind": "shortlist"}, headers=seeded["headers"])
+        assert response.json()["sent"] is True
     kwargs = sender.await_args.kwargs
     assert kwargs["subject"] == "CUSTOM Alice Candidate"
     assert "CUSTOM_BODY" in kwargs["body_html"]
@@ -421,7 +442,7 @@ async def test_candidate_list_sortable_by_subscore(
     ids = await _build_candidate_with_evaluation(
         candidate_email="alice@candidate.com"
     )
-    async with test_session_factory() as session:
+    async with db_session_factory() as session:
         job = (await session.execute(
             select(JobPosting).where(JobPosting.id == ids["job_id"])
         )).scalar_one()

@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
 from app.utils.cookies import COOKIE_NAME
+from app.utils.passwords import validate_password_bytes
 
 
 # --- Password hashing ---
@@ -22,12 +23,16 @@ from app.utils.cookies import COOKIE_NAME
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt."""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(validate_password_bytes(password).encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify a plaintext password against a bcrypt hash."""
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    try:
+        validate_password_bytes(plain)
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except (ValueError, UnicodeError):
+        return False
 
 
 # --- JWT ---
@@ -74,12 +79,12 @@ def decode_access_token(token: str) -> dict:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
-        )
+        ) from None
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
-        )
+        ) from None
 
 
 def token_expires_in_seconds(token: str) -> int:
@@ -193,3 +198,9 @@ async def csrf_protect(request: Request) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Missing or invalid {_CSRF_HEADER} header",
         )
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user

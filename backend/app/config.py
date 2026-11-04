@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
+from pydantic import field_validator, model_validator
 
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    portfolio_demo: bool = False
+
     # Database
     database_url: str = "sqlite+aiosqlite:///./hr_interviewer.db"
 
@@ -24,7 +28,7 @@ class Settings(BaseSettings):
     test_emails: str = ""  # comma-separated allowlist when enable_test_emails=True
 
     # Environment: "development" | "production"
-    environment: str = "development"
+    environment: Literal["development", "production"] = "development"
 
     # LLM Provider: "openai", "deepseek", or "anthropic"
     llm_provider: str = "deepseek"
@@ -111,9 +115,36 @@ class Settings(BaseSettings):
     # Set to e.g. "redis://localhost:6379/0" to share limits across workers.
     redis_url: str = ""
     rate_limit_enabled: bool = True
+    # Only the owned Next proxy may supply client identity. Uvicorn must use
+    # --no-proxy-headers so request.client remains the actual transport peer.
+    trusted_proxy_ips: list[str] = []
+    proxy_auth_secret: str = ""
+
+    @field_validator("environment", mode="before")
+    @classmethod
+    def environment_name(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def secure_configuration(self):
+        if self.portfolio_demo:
+            if self.environment != "development":
+                raise ValueError("Portfolio demo is forbidden in production")
+            from app.demo.guard import require_demo
+            require_demo()
+        if self.environment == "production":
+            if self.jwt_secret_key.strip().lower() in _INSECURE_DEFAULTS or len(self.jwt_secret_key.strip()) < 32:
+                raise ValueError("JWT_SECRET_KEY must be a generated secret of at least 32 characters")
+            if self.enable_test_emails:
+                raise ValueError("Test emails are forbidden in production")
+        if self.trusted_proxy_ips and len(self.proxy_auth_secret) < 32:
+            raise ValueError("Trusted proxies require a generated PROXY_AUTH_SECRET of at least 32 characters")
+        return self
+
 
     model_config = {
         "env_file": ".env",
+        "hide_input_in_errors": True,
         "env_file_encoding": "utf-8",
         # Tolerate stale env vars (e.g. legacy JWT_EXPIRY_DAYS) instead of
         # crashing app startup. New settings are documented in .env.example.
@@ -124,6 +155,8 @@ class Settings(BaseSettings):
 _INSECURE_DEFAULTS = {
     "change-this-in-production",
     "hr-interviewer-dev-secret-key-2026",
+    "replace-me-with-a-64-byte-hex-secret",
+    "your-secret-key-change-in-production",
     "",
 }
 
@@ -133,7 +166,8 @@ _MIN_JWT_SECRET_LENGTH = 32
 
 @lru_cache
 def get_settings() -> Settings:
-    s = Settings()
+    import os
+    s = Settings(_env_file=None) if os.environ.get("PORTFOLIO_DEMO") == "1" else Settings()
     is_prod = s.environment.lower() == "production"
 
     if s.jwt_secret_key in _INSECURE_DEFAULTS or len(s.jwt_secret_key) < _MIN_JWT_SECRET_LENGTH:

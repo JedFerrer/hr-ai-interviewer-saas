@@ -19,6 +19,9 @@ async def send_interview_invite(
     interview_link: str,
 ) -> bool:
     """Send interview invitation email to a candidate."""
+    if settings.portfolio_demo:
+        from app.demo.adapters import capture
+        return capture("interview", candidate_email, f"Interview: {job_title}", f"Synthetic invitation for {candidate_name} at {company_name}", interview_link)
     if not settings.resend_api_key:
         logger.warning("RESEND_API_KEY not set, skipping email to %s", candidate_email)
         return False
@@ -61,6 +64,9 @@ async def send_completion_notification(
     candidate_id: str,
 ) -> bool:
     """Notify HR user that a candidate completed their interview."""
+    if settings.portfolio_demo:
+        from app.demo.adapters import capture
+        return capture("completion", hr_email, "Interview completed", f"Synthetic interview completed by {candidate_name}")
     if not settings.resend_api_key:
         logger.warning("RESEND_API_KEY not set, skipping notification to %s", hr_email)
         return False
@@ -105,6 +111,9 @@ async def send_status_email(
     which already HTML-escapes user-controlled values. We pass them through
     verbatim here.
     """
+    if settings.portfolio_demo:
+        from app.demo.adapters import capture
+        return capture("status", candidate_email, subject, body_html)
     if not settings.resend_api_key:
         logger.warning("RESEND_API_KEY not set, skipping status email to %s", candidate_email)
         return False

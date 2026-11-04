@@ -6,8 +6,10 @@ Usage:
 
 from __future__ import annotations
 
+from backend.scripts.owned_workspace import require_owned_workspace, owned_path
+require_owned_workspace(providers=True)
+
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -24,6 +26,7 @@ def main() -> None:
     parser.add_argument("--output", default="output/transcripts", help="Output directory for transcripts")
     parser.add_argument("--questions", type=int, default=7, help="Number of questions to generate (default: 7)")
     args = parser.parse_args()
+    owned_path(args.output)  # reject output escapes before any provider call
 
     # Validate inputs
     resume_path = Path(args.resume)
@@ -69,14 +72,14 @@ def main() -> None:
     engine.run()
 
     # Save transcript
-    output_dir = Path(args.output)
+    output_dir = owned_path(args.output)
     safe_name = resume_data.name.replace(" ", "_").lower() or "candidate"
-    transcript_path = engine.save_transcript(output_dir / f"{safe_name}_transcript.json")
+    transcript_path = engine.save_transcript(owned_path(output_dir / f"{safe_name}_transcript.json"))
     print(f"Transcript saved: {transcript_path}")
 
     # Print cost summary
     cost = get_cost_summary()
-    print(f"\nAPI Cost Summary:")
+    print("\nAPI Cost Summary:")
     print(f"  Total calls: {cost['calls']}")
     print(f"  Total tokens: {cost['total_tokens']:,}")
     print(f"  Estimated cost: ${cost['total_cost_usd']:.4f}")

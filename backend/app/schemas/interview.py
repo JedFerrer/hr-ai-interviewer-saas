@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field
 
 
 class InterviewLandingResponse(BaseModel):
@@ -39,6 +39,7 @@ class SessionLandingResponse(BaseModel):
     candidate_name: str
     total_questions: int
     status: str
+    current_question_index: int = 0  # Populated for in_progress sessions so the frontend can restore progress on refresh
 
 
 class SessionStartResponse(BaseModel):
@@ -58,7 +59,7 @@ class InterviewStartResponse(BaseModel):
 
 class InterviewMessageRequest(BaseModel):
     interview_token: str
-    message: str
+    message: str = Field(min_length=1, max_length=20000)
     integrity_signals: dict | None = None
 
 

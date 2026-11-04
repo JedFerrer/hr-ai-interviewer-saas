@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -450,13 +450,13 @@ function Step2Form({
     register,
     handleSubmit,
     formState: { errors },
-    watch,
+    control,
   } = useForm<Step2Data>({
     resolver: zodResolver(step2Schema),
     defaultValues: defaultValues ?? { description: "" },
   });
 
-  const desc = watch("description");
+  const desc = useWatch({ control, name: "description" });
 
   return (
     <Card>

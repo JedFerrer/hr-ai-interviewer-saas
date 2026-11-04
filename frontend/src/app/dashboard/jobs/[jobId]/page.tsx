@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 
 import { jobs as jobsApi, candidates as candidatesApi } from "@/lib/api";
-import type { JobPosting, Candidate } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import type { JobPosting, Candidate, CandidateUpdatedEvent } from "@/lib/types";
 import { ComparisonDrawer } from "@/components/comparison-drawer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +63,7 @@ const MIN_COMPARE = 2;
 export default function JobDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const router = useRouter();
+  const { user: currentUser } = useAuth();
   const [job, setJob] = useState<JobPosting | null>(null);
   const [candidateList, setCandidateList] = useState<Candidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -83,33 +85,115 @@ export default function JobDetailPage() {
     candidateEmail: string | null;
     kind: "approve_pre_screen" | "reject_pre_screen";
   } | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const PAGE_SIZE = 50;
 
   const fetchCandidates = useCallback(
-    (key: SortKey, order: SortOrder) =>
-      jobsApi.candidates(jobId, `sort=${key}&order=${order}`),
+    (key: SortKey, order: SortOrder, offset = 0) =>
+      jobsApi.candidates(jobId, { sort: key, order, limit: PAGE_SIZE, offset }),
     [jobId],
   );
 
   useEffect(() => {
-    Promise.all([jobsApi.get(jobId), fetchCandidates(sortKey, sortOrder)])
+    Promise.all([jobsApi.get(jobId), fetchCandidates(sortKey, sortOrder, 0)])
       .then(([jobRes, candRes]) => {
         setJob(jobRes.job);
         setCandidateList(candRes.candidates);
+        setTotalCount(candRes.total);
       })
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
   }, [jobId, fetchCandidates, sortKey, sortOrder]);
 
+  // Keep a ref of current candidate IDs so the SSE handler (which captures
+  // a stale closure) can detect brand-new applicants without reading stale state.
+  const candidateIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    candidateIdsRef.current = new Set(candidateList.map((c) => c.id));
+  }, [candidateList]);
+
+  // Real-time updates: subscribe to the job's SSE stream so background-pipeline
+  // results AND actions taken by other recruiters in the same company appear
+  // here without a refresh. For candidates already in the list we patch the row
+  // in place. For brand-new applicants (not yet in the list) we fetch their
+  // full details and append them, then show a notification.
+  useEffect(() => {
+    if (!jobId) return;
+    const close = jobsApi.streamUpdates(jobId, {
+      onCandidateUpdated: (event: CandidateUpdatedEvent) => {
+        // Suppress no-op self-updates: optimistic UI already applied them.
+        const isSelf =
+          event.actor_user_id !== null &&
+          currentUser !== null &&
+          event.actor_user_id === currentUser.id;
+
+        if (!candidateIdsRef.current.has(event.candidate_id)) {
+          // Brand-new applicant — fetch their full details and add to the list.
+          candidatesApi
+            .get(event.candidate_id)
+            .then((detail) => {
+              setCandidateList((prev) => {
+                if (prev.some((c) => c.id === detail.id)) return prev;
+                return [...prev, detail];
+              });
+              setTotalCount((n) => n + 1);
+              if (!isSelf) {
+                const name = detail.name ?? event.name ?? "A candidate";
+                toast.message(`New application: ${name}`, {
+                  description: `Status: ${detail.status.replace(/_/g, " ")}`,
+                });
+              }
+            })
+            .catch(() => {
+              // Fetch failed — silently ignore; the user can refresh.
+            });
+          return;
+        }
+
+        setCandidateList((prev) => {
+          const idx = prev.findIndex((c) => c.id === event.candidate_id);
+          if (idx === -1) return prev;
+          if (prev[idx].status === event.status) return prev;
+          const next = [...prev];
+          next[idx] = { ...next[idx], status: event.status };
+          return next;
+        });
+
+        // Toast for changes made by other recruiters or by the system, so the
+        // viewer notices the row updating. Skip self-actions to avoid noise.
+        if (isSelf) return;
+        const who = event.actor_name ?? "The system";
+        const candidateName = event.name ?? "a candidate";
+        toast.message(`${who} updated ${candidateName}`, {
+          description: `Status → ${event.status.replace(/_/g, " ")}`,
+        });
+      },
+    });
+    return close;
+  }, [jobId, currentUser]);
+
+  const loadMore = async () => {
+    setIsLoadingMore(true);
+    try {
+      const res = await fetchCandidates(sortKey, sortOrder, candidateList.length);
+      setCandidateList((prev) => [...prev, ...res.candidates]);
+      setTotalCount(res.total);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load more");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   // Trim selection when the underlying list changes (e.g. status filter
   // hides a previously-selected row) so we never have a stale selection.
   const filteredIds = useFilteredIds(candidateList, statusFilter);
-  useEffect(() => {
-    setSelectedIds((prev) => {
-      const next = new Set<string>();
-      for (const id of prev) if (filteredIds.has(id)) next.add(id);
-      return next.size === prev.size ? prev : next;
-    });
-  }, [filteredIds]);
+  // Adjust only when a selection becomes hidden; avoid an effect on every render.
+  if ([...selectedIds].some((id) => !filteredIds.has(id))) {
+    setSelectedIds(new Set([...selectedIds].filter((id) => filteredIds.has(id))));
+  }
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -281,7 +365,7 @@ export default function JobDetailPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start gap-3">
-        <Link href="/dashboard">
+        <Link href="/dashboard/jobs">
           <Button variant="ghost" size="icon" className="shrink-0 mt-0.5">
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -424,7 +508,7 @@ export default function JobDetailPage() {
         <Card>
           <CardContent className="py-4 text-center">
             <Users className="mx-auto mb-1 hidden sm:block h-5 w-5 text-muted-foreground" />
-            <p className="text-2xl font-bold">{job.candidate_count ?? 0}</p>
+            <p className="text-2xl font-bold">{totalCount}</p>
             <p className="text-xs text-muted-foreground">
               <span className="sm:hidden">Total<br />Candidates</span>
               <span className="hidden sm:inline">Total Candidates</span>
@@ -435,9 +519,12 @@ export default function JobDetailPage() {
           <CardContent className="py-4 text-center">
             <BarChart3 className="mx-auto mb-1 hidden sm:block h-5 w-5 text-muted-foreground" />
             <p className="text-2xl font-bold">
-              {job.avg_score != null && job.avg_score !== 0
-                ? Number(job.avg_score).toFixed(1)
-                : "—"}
+              {(() => {
+                const scored = candidateList.filter((c) => c.overall_score != null);
+                if (scored.length === 0) return "—";
+                const avg = scored.reduce((sum, c) => sum + (c.overall_score ?? 0), 0) / scored.length;
+                return avg.toFixed(1);
+              })()}
             </p>
             <p className="text-xs text-muted-foreground">
               <span className="sm:hidden">Avg<br />Score</span>
@@ -645,6 +732,30 @@ export default function JobDetailPage() {
                   ))}
                 </tbody>
               </table>
+              {/* Load more — only when status filter is "all" so we don't
+                  promise more results than the current filter can yield. */}
+              {statusFilter === "all" && candidateList.length < totalCount && (
+                <div className="flex flex-col items-center gap-2 pt-6 pb-2">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {candidateList.length} of {totalCount}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadMore}
+                    disabled={isLoadingMore}
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        Loading…
+                      </>
+                    ) : (
+                      `Load ${Math.min(PAGE_SIZE, totalCount - candidateList.length)} more`
+                    )}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

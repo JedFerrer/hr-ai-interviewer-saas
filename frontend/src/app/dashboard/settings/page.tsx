@@ -6,6 +6,7 @@ import {
   Mail,
   Shield,
   User,
+  Users,
 } from "lucide-react";
 
 import Link from "next/link";
@@ -98,6 +99,24 @@ export default function SettingsPage() {
         </Card>
 
         <Separator />
+
+        {/* Team */}
+        <Link href="/dashboard/settings/team" className="block group">
+          <Card className="transition-colors group-hover:border-primary/40">
+            <CardContent className="flex items-center justify-between py-4">
+              <div className="flex items-center gap-3">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">Team & invites</p>
+                  <p className="text-xs text-muted-foreground">
+                    Invite other recruiters to share this company workspace.
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        </Link>
 
         {/* Email templates */}
         <Link

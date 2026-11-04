@@ -50,7 +50,7 @@ async def signup(db: AsyncSession, data: SignupRequest) -> tuple[User, Company, 
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists",
-        )
+        ) from None
     await db.refresh(user)
     await db.refresh(company)
 

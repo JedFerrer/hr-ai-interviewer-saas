@@ -7,32 +7,23 @@ import {
   Briefcase,
   Building2,
   Loader2,
-  Send,
+  ArrowUp,
   AlertTriangle,
   CheckCircle2,
   Play,
-  MessageSquare,
+  Sparkles,
+  Clock,
+  MessageCircle,
+  ShieldCheck,
 } from "lucide-react";
 
+import type { SessionLandingResponse } from "@/lib/types";
 import { interview as interviewApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 
-interface SessionInfo {
-  job_title: string;
-  company_name: string;
-  candidate_name: string;
-  total_questions: number;
-  status: string;
-}
+type SessionInfo = SessionLandingResponse;
 
 interface Message {
   role: "ai" | "candidate";
@@ -56,6 +47,7 @@ export default function InterviewSessionPage() {
   const [inputMessage, setInputMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
   const [isInterviewDone, setIsInterviewDone] = useState(false);
   const [progress, setProgress] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -66,9 +58,19 @@ export default function InterviewSessionPage() {
   // Integrity tracking refs (not rendered, so refs are fine)
   const wasPastedRef = useRef(false);
   const tabSwitchCountRef = useRef(0);
-  const lastAiTimestampRef = useRef<number>(Date.now());
+  const lastAiTimestampRef = useRef<number>(0);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the textarea up to a max height (ChatGPT-style).
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const next = Math.min(ta.scrollHeight, 200); // ~8 lines max
+    ta.style.height = `${next}px`;
+  }, [inputMessage]);
 
   // Track tab/window visibility changes
   useEffect(() => {
@@ -85,32 +87,62 @@ export default function InterviewSessionPage() {
   useEffect(() => {
     interviewApi
       .sessionLanding(token)
-      .then((data) => {
+      .then(async (data) => {
         setSessionInfo(data);
-        if (data.status === "in_progress") {
-          setPhase("interview");
-        } else if (data.status === "completed") {
+        if (data.status === "completed") {
           setPhase("completed");
+          setIsLoading(false);
+          return;
         }
+        if (data.status === "in_progress") {
+          // Auto-resume: call sessionStart which returns interview_token + last AI message.
+          // The backend allows begin_session for in_progress candidates and returns
+          // the last AI message from the stored transcript.
+          setIsResuming(true);
+          setIsLoading(false);
+          try {
+            const resumed = await interviewApi.sessionStart(token);
+            setInterviewToken(resumed.interview_token);
+            lastAiTimestampRef.current = Date.now();
+            // Restore progress from the landing data (current_question_index is 0-based)
+            const resumedQ = data.current_question_index + 1;
+            setProgress(`${resumedQ}/${data.total_questions}`);
+            setMessages([
+              {
+                role: "ai",
+                content: resumed.first_message,
+              },
+            ]);
+            setPhase("interview");
+          } catch {
+            setError("Failed to resume your interview. Please try refreshing.");
+          } finally {
+            setIsResuming(false);
+          }
+          return;
+        }
+        setIsLoading(false);
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        setError(err.message);
+        setIsLoading(false);
+      });
   }, [token]);
 
   // Auto-scroll messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const pane = messagesScrollRef.current;
+    pane?.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
   }, [messages, isTyping]);
 
   // Countdown timer for redirect after completion
   useEffect(() => {
     if (redirectCountdown === null) return;
-    if (redirectCountdown <= 0) {
-      setPhase("completed");
-      return;
-    }
     const timer = setTimeout(
-      () => setRedirectCountdown(redirectCountdown - 1),
+      () => {
+        if (redirectCountdown <= 1) setPhase("completed");
+        else setRedirectCountdown(redirectCountdown - 1);
+      },
       1000,
     );
     return () => clearTimeout(timer);
@@ -221,6 +253,15 @@ export default function InterviewSessionPage() {
     );
   }
 
+  if (isResuming) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Resuming your interview…</p>
+      </div>
+    );
+  }
+
   if (error || !sessionInfo) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -240,65 +281,92 @@ export default function InterviewSessionPage() {
 
   // ── Landing (Ready to start) ──
   if (phase === "landing") {
+    const initials = sessionInfo.candidate_name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? "")
+      .join("");
+
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-lg">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <Briefcase className="h-6 w-6" />
+        <div className="w-full max-w-xl">
+          {/* Identity */}
+          <div className="flex flex-col items-center text-center mb-8">
+            <div className="relative mb-5">
+              <div className="absolute inset-0 rounded-full bg-primary/20 blur-xl" />
+              <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-linear-to-br from-primary to-primary/70 text-primary-foreground text-2xl font-semibold shadow-lg ring-4 ring-background">
+                {initials || <Briefcase className="h-8 w-8" />}
+              </div>
             </div>
-            <CardTitle className="text-xl">
-              Welcome, {sessionInfo.candidate_name}!
-            </CardTitle>
-            <CardDescription className="flex items-center justify-center gap-1">
+            <h1 className="text-3xl font-bold tracking-tight">
+              Welcome, {sessionInfo.candidate_name.split(/\s+/)[0]}
+            </h1>
+            <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
               <Building2 className="h-3.5 w-3.5" />
-              {sessionInfo.job_title} · {sessionInfo.company_name}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-              <h3 className="text-sm font-semibold">Interview Details</h3>
-              <ul className="text-sm text-muted-foreground space-y-1">
-                <li>
-                  • {sessionInfo.total_questions} tailored questions based on
-                  your resume
-                </li>
-                <li>• AI-powered conversational interview</li>
-                <li>• Estimated duration: 15–25 minutes</li>
-              </ul>
-            </div>
+              <span className="font-medium text-foreground">{sessionInfo.job_title}</span>
+              <span className="text-muted-foreground/60">·</span>
+              <span>{sessionInfo.company_name}</span>
+            </p>
+          </div>
 
-            <div className="rounded-lg border bg-blue-50 dark:bg-blue-950/30 p-4 space-y-2">
-              <h3 className="text-sm font-semibold text-blue-700 dark:text-blue-300">
-                Tips for best results
-              </h3>
-              <ul className="text-sm text-blue-600 dark:text-blue-400 space-y-1">
-                <li>• Be specific — use real examples from your experience</li>
-                <li>• Take your time — there&apos;s no time limit per question</li>
-                <li>• The AI may ask follow-ups if it needs more detail</li>
-              </ul>
-            </div>
+          {/* Details card */}
+          <Card className="border-border/60 shadow-sm">
+            <CardContent className="p-6 space-y-5">
+              <div className="grid grid-cols-3 gap-4">
+                <DetailStat
+                  icon={<MessageCircle className="h-4 w-4" />}
+                  value={String(sessionInfo.total_questions)}
+                  label="Questions"
+                />
+                <DetailStat
+                  icon={<Clock className="h-4 w-4" />}
+                  value="15–25"
+                  label="Minutes"
+                />
+                <DetailStat
+                  icon={<Sparkles className="h-4 w-4" />}
+                  value="AI"
+                  label="Conversational"
+                />
+              </div>
 
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={handleStart}
-              disabled={isStarting}
-            >
-              {isStarting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Starting…
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2 h-4 w-4" />
-                  Start Interview
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+              <div className="border-t pt-5 space-y-3">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  Before you begin
+                </h3>
+                <ul className="text-sm text-muted-foreground space-y-2 pl-6 list-disc marker:text-muted-foreground/40">
+                  <li>Be specific — use concrete examples from your experience.</li>
+                  <li>Take your time. There&apos;s no time limit on any question.</li>
+                  <li>The interviewer may ask follow-ups if it needs more detail.</li>
+                </ul>
+              </div>
+
+              <Button
+                className="w-full h-11 text-base font-medium"
+                onClick={handleStart}
+                disabled={isStarting}
+              >
+                {isStarting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Starting…
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    Start Interview
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            Your responses are confidential and reviewed only by the {sessionInfo.company_name} hiring team.
+          </p>
+        </div>
       </div>
     );
   }
@@ -307,20 +375,45 @@ export default function InterviewSessionPage() {
   if (phase === "completed") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-              <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+        <div className="w-full max-w-lg text-center">
+          <div className="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-green-500/20 blur-xl" />
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-linear-to-br from-green-500 to-emerald-600 shadow-lg ring-4 ring-background">
+              <CheckCircle2 className="h-10 w-10 text-white" />
             </div>
-            <h2 className="text-xl font-semibold">Interview Complete!</h2>
-            <p className="text-sm text-muted-foreground">
-              Thank you for completing your interview for{" "}
-              <strong>{sessionInfo.job_title}</strong> at{" "}
-              <strong>{sessionInfo.company_name}</strong>. The hiring team will
-              review your responses and get back to you.
-            </p>
-          </CardContent>
-        </Card>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">Interview complete</h1>
+          <p className="mt-3 text-base text-muted-foreground">
+            Thank you for completing your interview for{" "}
+            <span className="font-medium text-foreground">{sessionInfo.job_title}</span>{" "}
+            at{" "}
+            <span className="font-medium text-foreground">{sessionInfo.company_name}</span>.
+          </p>
+
+          <Card className="mt-8 text-left border-border/60">
+            <CardContent className="p-6 space-y-4">
+              <h3 className="text-sm font-semibold">What happens next</h3>
+              <ol className="space-y-3">
+                {[
+                  "Your responses are reviewed and scored.",
+                  "The hiring team evaluates the results.",
+                  `${sessionInfo.company_name} will be in touch via email.`,
+                ].map((step, i) => (
+                  <li key={i} className="flex gap-3 text-sm">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {i + 1}
+                    </span>
+                    <span className="text-muted-foreground pt-0.5">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+
+          <p className="mt-6 text-xs text-muted-foreground">
+            You can safely close this window.
+          </p>
+        </div>
       </div>
     );
   }
@@ -329,24 +422,25 @@ export default function InterviewSessionPage() {
   const { current: qCurrent, total: qTotal } = parseProgress(progress);
 
   return (
-    <div className="flex h-screen flex-col bg-background overflow-hidden">
+    <div className="flex h-[calc(100dvh-var(--portfolio-demo-height,0px))] min-h-96 flex-col bg-background overflow-hidden">
       {/* Sticky Header */}
-      <header className="shrink-0 border-b bg-card px-4 py-3 z-10">
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <Briefcase className="h-5 w-5 text-primary" />
+      <header className="shrink-0 border-b bg-background/80 backdrop-blur-md px-4 py-3 z-10">
+        <div className="mx-auto flex max-w-3xl items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Briefcase className="h-4 w-4" />
+          </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{sessionInfo.job_title}</p>
+            <p className="text-sm font-semibold truncate leading-tight">{sessionInfo.job_title}</p>
             <p className="text-xs text-muted-foreground truncate">
-              {sessionInfo.company_name} · AI Interview
+              {sessionInfo.company_name}
             </p>
           </div>
           {progress && !isInterviewDone && (
-            <div className="flex items-center gap-2 shrink-0">
-              <MessageSquare className="h-3.5 w-3.5 text-muted-foreground hidden sm:block" />
-              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                Question {qCurrent} of {qTotal}
+            <div className="flex items-center gap-2.5 shrink-0">
+              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap tabular-nums">
+                {qCurrent} / {qTotal}
               </span>
-              <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+              <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
                 <div
                   className="h-full rounded-full bg-primary transition-all duration-500"
                   style={{
@@ -369,13 +463,21 @@ export default function InterviewSessionPage() {
       </header>
 
       {/* Messages — only this area scrolls */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 min-h-0">
-        <div className="mx-auto max-w-2xl space-y-4">
+      <div ref={messagesScrollRef} role="region" aria-label="Interview messages" tabIndex={0} className="flex-1 overflow-y-auto px-4 py-8 min-h-0">
+        <div className="mx-auto max-w-3xl space-y-6">
+          {/* Resumed banner — only shown when session was auto-resumed on refresh */}
+          {sessionInfo?.status === "in_progress" && messages.length > 0 && !isInterviewDone && (
+            <div className="flex justify-center">
+              <span className="rounded-full border border-border/50 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
+                Interview resumed — continuing from where you left off
+              </span>
+            </div>
+          )}
           {messages.map((msg, i) => (
             <div key={i}>
               {/* Last question badge */}
               {msg.role === "ai" && msg.isLastQuestion && (
-                <div className="flex justify-start mb-1">
+                <div className="flex justify-start mb-2 pl-11">
                   <Badge
                     variant="outline"
                     className="text-xs border-amber-300 text-amber-600 dark:text-amber-400"
@@ -384,31 +486,47 @@ export default function InterviewSessionPage() {
                   </Badge>
                 </div>
               )}
-              <div
-                className={`flex ${msg.role === "candidate" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                    msg.role === "candidate"
-                      ? "bg-primary text-primary-foreground"
-                      : msg.isClosing
-                        ? "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800"
-                        : "bg-muted"
-                  }`}
-                >
-                  {msg.content}
+              {msg.role === "ai" ? (
+                // AI: no bubble, plain text with avatar (ChatGPT-style).
+                <div className="flex gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-primary to-primary/70 text-primary-foreground shadow-sm">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div
+                    className={`flex-1 pt-0.5 text-[15px] leading-relaxed whitespace-pre-wrap ${
+                      msg.isClosing ? "text-foreground" : "text-foreground"
+                    }`}
+                  >
+                    {msg.content}
+                    {msg.isClosing && (
+                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1 text-xs font-medium text-green-700 dark:text-green-400">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Interview complete
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                // Candidate: rounded pill bubble on the right.
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] rounded-3xl bg-muted px-5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap">
+                    {msg.content}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
 
-          {/* Typing indicator */}
+          {/* Typing indicator (AI thinking) */}
           {(isSending || isTyping) && (
-            <div className="flex justify-start">
-              <div className="rounded-2xl bg-muted px-4 py-3 flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
-                <span className="h-2 w-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
-                <span className="h-2 w-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
+            <div className="flex gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-primary to-primary/70 text-primary-foreground shadow-sm">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div className="flex items-center gap-1 pt-3">
+                <span className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0ms]" />
+                <span className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:150ms]" />
+                <span className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:300ms]" />
               </div>
             </div>
           )}
@@ -422,13 +540,12 @@ export default function InterviewSessionPage() {
             </div>
           )}
 
-          <div ref={messagesEndRef} />
         </div>
       </div>
 
-      {/* Input — pinned to bottom */}
-      <div className="shrink-0 border-t bg-card px-4 py-3 z-10">
-        <div className="mx-auto max-w-2xl">
+      {/* Input — pinned to bottom (ChatGPT-style auto-grow) */}
+      <div className="shrink-0 px-4 pb-4 pt-2 z-10">
+        <div className="mx-auto max-w-3xl">
           {isInterviewDone ? (
             <div className="flex items-center justify-center py-2">
               <p className="text-sm text-muted-foreground">
@@ -436,28 +553,56 @@ export default function InterviewSessionPage() {
               </p>
             </div>
           ) : (
-            <div className="flex items-end gap-2 rounded-xl border bg-background p-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all">
-              <Textarea
-                placeholder="Type your response…"
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onPaste={() => { wasPastedRef.current = true; }}
-                rows={1}
-                className="resize-none border-0 shadow-none focus-visible:ring-0 p-1 min-h-9 max-h-30"
-                disabled={isSending || isTyping}
-              />
-              <Button
-                size="icon"
-                onClick={handleSend}
-                disabled={isSending || isTyping || !inputMessage.trim()}
-                className="shrink-0 h-9 w-9 rounded-lg"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
+            <>
+              <div className="flex items-end gap-2 rounded-3xl border border-border/80 bg-muted/40 px-4 py-3 shadow-sm focus-within:border-border focus-within:bg-muted/60 transition-colors">
+                <textarea
+                  ref={textareaRef}
+                  placeholder="Type your response…"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onPaste={() => { wasPastedRef.current = true; }}
+                  rows={1}
+                  className="min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-6 placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+                  style={{ minHeight: 24, maxHeight: 200 }}
+                  disabled={isSending || isTyping}
+                />
+                <Button
+                  size="icon"
+                  onClick={handleSend}
+                  aria-label="Send response"
+                  disabled={isSending || isTyping || !inputMessage.trim()}
+                  className="shrink-0 h-8 w-8 rounded-full"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                Press Enter to send, Shift + Enter for new line
+              </p>
+            </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailStat({
+  icon,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  value: string;
+  label: string;
+}) {
+  return (
+    <div className="flex flex-col items-center text-center gap-1.5 rounded-lg bg-muted/40 px-2 py-3">
+      <div className="text-primary">{icon}</div>
+      <div className="text-lg font-semibold leading-none">{value}</div>
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+        {label}
       </div>
     </div>
   );

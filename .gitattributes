@@ -1,0 +1,4 @@
+# Preserve fixture and screenshot bytes across Windows checkouts.
+*.pdf binary
+*.docx binary
+*.png binary

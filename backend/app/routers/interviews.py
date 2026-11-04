@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rate_limiter import limiter
+from app.utils.storage import read_resume_upload
+from pydantic import EmailStr
 from app.schemas.interview import (
     ApplicationResponse,
     ApplicationStatusResponse,
@@ -47,14 +49,14 @@ async def apply(
     request: Request,
     background_tasks: BackgroundTasks,
     job_token: str = Form(...),
-    candidate_name: str = Form(...),
-    candidate_email: str = Form(...),
+    candidate_name: str = Form(..., min_length=1, max_length=255),
+    candidate_email: EmailStr = Form(...),
     resume: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Submit an application. Returns immediately; processing happens in background."""
     job = await interview_service.get_job_by_token(db, job_token)
-    file_content = await resume.read()
+    file_content = await read_resume_upload(resume)
 
     candidate = await interview_service.apply(
         db=db,
@@ -103,6 +105,7 @@ async def application_status(
 
     interview_link = None
     if candidate.status == "ready":
+        await interview_service.get_session_landing(db, interview_token)
         interview_link = f"{settings.app_url}/interview/session/{candidate.interview_token}"
 
     return ApplicationStatusResponse(
@@ -168,17 +171,19 @@ async def interview_message(
 # ---------------------------------------------------------------------------
 
 @router.post("/start", response_model=InterviewStartResponse, deprecated=True)
+@limiter.limit("10/minute")
 async def start_interview(
+    request: Request,
     background_tasks: BackgroundTasks,
     job_token: str = Form(...),
-    candidate_name: str = Form(...),
-    candidate_email: str = Form(...),
+    candidate_name: str = Form(..., min_length=1, max_length=255),
+    candidate_email: EmailStr = Form(...),
     resume: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Legacy: Start a new interview (redirects through new two-phase flow)."""
     job = await interview_service.get_job_by_token(db, job_token)
-    file_content = await resume.read()
+    file_content = await read_resume_upload(resume)
 
     candidate = await interview_service.apply(
         db=db,
@@ -212,6 +217,7 @@ async def interview_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Check interview status (public)."""
+    await interview_service.get_session_landing(db, interview_token)
     from sqlalchemy import select
     from app.models.candidate import Candidate
     from app.models.interview import Interview

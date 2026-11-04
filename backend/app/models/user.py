@@ -9,6 +9,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, generate_uuid
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.company import Company
+
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"

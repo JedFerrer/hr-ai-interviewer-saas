@@ -10,7 +10,6 @@ from app.models.user import User
 from app.schemas.email_template import (
     EmailTemplatesResponse,
     EmailTemplatesUpdateRequest,
-    TemplateBody,
 )
 from app.services import email_template_service
 from app.utils.security import csrf_protect, get_current_user

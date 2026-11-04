@@ -32,6 +32,8 @@ _MAX_RETRIES = 2
 
 def _build_client(provider_cfg: dict) -> AsyncOpenAI:
     """Build an AsyncOpenAI client for a single provider config."""
+    if _settings.portfolio_demo:
+        raise RuntimeError("Live provider forbidden in portfolio demo")
     return AsyncOpenAI(
         api_key=provider_cfg["api_key"],
         base_url=provider_cfg.get("base_url"),
@@ -52,6 +54,8 @@ async def llm_chat_completion(
     model: str | None = None,
     temperature: float = 0.4,
     json_mode: bool = False,
+    operation: str | None = None,
+    demo_context: dict | None = None,
     **kwargs,
 ) -> tuple:
     """Call chat completions with automatic provider fallback.
@@ -72,6 +76,9 @@ async def llm_chat_completion(
       * BadRequestError / other 4xx → raise (our request is malformed; don't
         burn fallback budget on a request that will fail everywhere)
     """
+    if _settings.portfolio_demo:
+        from app.demo.adapters import completion
+        return completion(operation, demo_context or {}), "portfolio-synthetic"
     chain = _settings.get_fallback_chain()
 
     last_exc: Exception | None = None
@@ -135,6 +142,10 @@ def get_async_openai_client() -> AsyncOpenAI:
     Use llm_chat_completion() instead when fallback is desired.
     Kept for backward-compat in places that need a raw client.
     """
+    if _settings.portfolio_demo:
+        from app.demo.guard import require_demo
+        require_demo()
+        return None  # Compatibility argument only; all async calls use the boundary above.
     api_key = _settings.active_llm_api_key
     if not api_key:
         raise RuntimeError(

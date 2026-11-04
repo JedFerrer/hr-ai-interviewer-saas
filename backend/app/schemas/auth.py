@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from app.utils.passwords import validate_password_bytes
 
 
 # --- Requests ---
@@ -23,12 +24,14 @@ class SignupRequest(BaseModel):
             raise ValueError(
                 "Password must contain at least one letter and one digit."
             )
-        return v
+        return validate_password_bytes(v)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=72)
+
+    _password_bytes = field_validator("password")(validate_password_bytes)
 
 
 # --- Responses ---
