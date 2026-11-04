@@ -1,7 +1,7 @@
 # Frontend setup
 
-The recommended evaluation is the [guarded fictional demo](../docs/portfolio-demo.md).
-For ordinary development, first configure the [backend](../backend/README.md).
+Follow the [ordinary real-provider setup](../docs/real-provider-setup.md) first.
+The [guarded fictional demo](../docs/portfolio-demo.md) is an optional preview.
 Verified: Windows, Node 22.16.0 and npm 10.9.2. Other platforms are unverified.
 
 Use the locked `npm ci` installation in [quality checks](../docs/quality-checks.md#installation).

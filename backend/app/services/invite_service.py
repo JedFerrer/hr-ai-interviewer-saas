@@ -291,21 +291,19 @@ async def send_invite_email(
     if settings.portfolio_demo:
         from app.demo.adapters import capture
         return capture("team", invitee_email, f"Join {company_name}", f"Synthetic invitation from {inviter_name}", f"{settings.app_url}/accept-invite/{raw_token}")
-    if not settings.resend_api_key:
+    if not settings.resend_api_key or not settings.from_email:
         logger.warning("Invitation delivery unavailable: email provider is not configured")
         return False
 
+    from app.services.email_service import send_resend
     import html as _html
 
-    import resend
-
-    resend.api_key = settings.resend_api_key
     accept_url = f"{settings.app_url}/accept-invite/{raw_token}"
     safe_inviter = _html.escape(inviter_name)
     safe_company = _html.escape(company_name)
 
     try:
-        resend.Emails.send(
+        accepted = await send_resend(
             {
                 "from": settings.from_email,
                 "to": [invitee_email],
@@ -325,7 +323,7 @@ async def send_invite_email(
                 """,
             }
         )
-        return True
+        return accepted
     except Exception:
-        logger.exception("Failed to send invite email to %s", invitee_email)
+        logger.exception("Failed to send invite email")
         return False

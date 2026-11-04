@@ -14,6 +14,10 @@ Run `python scripts/validate_source.py` to check links, paths and digests; use
 `--refresh` only after deliberately reviewing changes to the selected files.
 The script does not automatically add paths to the manifest or stage anything.
 
+The November 4 commit review adds deterministic interview rollback and overlapping
+request persistence tests to the selected source. Private review records remain
+under `.local-dev/handoffs/`; no runtime data or new live-provider evidence is added.
+
 | Retained public material | Purpose |
 | --- | --- |
 | Backend/frontend application, all migrations, root CLI prototype | Complete source and schema history; guarded provider utilities remain opt-in |
@@ -21,7 +25,7 @@ The script does not automatically add paths to the manifest or stage anything.
 | Locks, CI, update configuration, scripts and scanner baseline | Clean installation, checks and full available publication-history scanning |
 | README/component guides, user guide, architecture, demo and limitations | Current setup, workflow and supported Windows/SQLite/one-worker scope |
 | RIGHTS, notices, contributor guidance and AGENTS | Usage policy, third-party provenance and repository instructions |
-| Eight fictional screenshots and provenance captions | UI illustration, with stated verification and font-provenance limits |
+| Fifteen fictional screenshots and provenance captions | Seven real-provider primary images and eight optional synthetic demo images, with separate evidence and font-provenance limits |
 | release/ metadata | Public verification inputs; no private handoffs or decision packets |
 
 Historical plans, roadmaps, worker handoffs, owner decision packets, publication

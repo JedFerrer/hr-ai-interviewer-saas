@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 
 import { share } from "@/lib/api";
+import { parseApiDate } from "@/lib/dates";
 import type { ShareTokenResponse } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -135,7 +136,7 @@ export function ShareReportDialog({ candidateId, candidateName }: Props) {
             <p className="text-xs text-muted-foreground">
               Expires{" "}
               <span className="font-medium text-foreground">
-                {format(new Date(shareData.expires_at), "MMM d, yyyy 'at' h:mm a")}
+                {format(parseApiDate(shareData.expires_at), "MMM d, yyyy 'at' h:mm a")}
               </span>
               . You won&rsquo;t be able to view this link again after closing
               this dialog.

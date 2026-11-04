@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 
 from fastapi import BackgroundTasks, APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.config import get_settings
 from app.models.user import User
 from app.schemas.candidate import (
     CandidateDetailResponse,
@@ -73,6 +75,15 @@ def _build_detail_response(
     before triggering a status change or a contradictory email.
     """
     job = getattr(candidate, "job_posting", None)
+    # Expose a usable capability only on the tenant-authorized detail response.
+    # Never add this to public application status or candidate list responses.
+    interview_link = None
+    expires = candidate.interview_link_expires_at
+    if expires and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if (interview is not None and candidate.status in {"ready", "in_progress"}
+            and candidate.interview_token and expires and expires > datetime.now(timezone.utc)):
+        interview_link = f"{get_settings().app_url}/interview/session/{candidate.interview_token}"
     return CandidateDetailResponse(
         id=candidate.id,
         name=candidate.name,
@@ -81,6 +92,7 @@ def _build_detail_response(
         resume_url=candidate.resume_url,
         resume_parsed_data=candidate.resume_parsed_data,
         interview=interview,
+        interview_link=interview_link,
         evaluation=evaluation,
         pre_screen=_build_pre_screen_summary(candidate),
         job_auto_send_status_emails=bool(

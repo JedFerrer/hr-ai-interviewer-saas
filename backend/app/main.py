@@ -10,6 +10,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from openai import APIConnectionError, APIStatusError
 
 from app.utils.safe_logging import install_safe_logging, safe_audit_fields
 
@@ -20,6 +22,7 @@ from app.middleware.rate_limiter import install_rate_limiter
 from app.middleware.body_limit import BodyLimitMiddleware
 from app.routers import analytics, auth, candidates, email_templates, interviews, jobs, public, share, team
 from app.utils.pubsub import InMemoryPubSub, set_pubsub
+from app.services.llm_client import ProviderConfigurationError, provider_error_message
 
 settings = get_settings()
 
@@ -88,6 +91,14 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+async def provider_failure(request: Request, exc: Exception):
+    return JSONResponse(status_code=503, content={"detail": provider_error_message(exc)})
+
+
+for error_type in (ProviderConfigurationError, APIConnectionError, APIStatusError):
+    app.add_exception_handler(error_type, provider_failure)
 
 # --- Middleware ---
 

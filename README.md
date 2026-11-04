@@ -3,33 +3,102 @@
 An AI-assisted screening **portfolio prototype**: employers create jobs, review
 applications and interviews, and make their own candidate decisions. Candidates
 apply with a resume and complete a text interview through an invitation link.
-The supported evaluation is local, fictional, and credential-free. This is not
-a hosted hiring service or a validated hiring assessment.
+Ordinary local setup uses your own AI provider credentials and optional Resend
+email configuration. On November 4, 2026, an isolated ordinary-mode test completed
+two fictional interviews with DeepSeek `deepseek-flash`; six Resend messages had
+observed delivery events, and the operator confirmed receiving/opening one invitation.
+See the [acceptance results and coverage limits](docs/real-provider-acceptance.md).
+Other AI providers remain unverified. This is not a hosted
+hiring service or a validated hiring assessment.
 
-![Fictional candidate analytics showing two applications and one completed interview](docs/assets/portfolio/analytics-desktop.png)
+## Product screenshots
 
-Synthetic demo, captured in Stage D; no real candidates or live-model results.
-See [screenshot provenance and gallery](docs/assets/portfolio/README.md).
+![Dashboard with three fictional applications and two completed interviews](docs/assets/real-provider/dashboard.png)
 
-## Try the local demo
+Fictional candidate data; real DeepSeek responses. Dashboard captured before the
+remaining manual decisions; displayed cost is the application's approximate metric.
 
-Start with the [guarded Windows demo](docs/portfolio-demo.md). It creates its own
-database, fictional resumes and captured mailbox, uses deterministic AI adapters,
-and removes only its own resources when stopped. No API credits or real email
-delivery are needed. Installation requires registry access.
+![Active fictional five-question interview with a real DeepSeek opening](docs/assets/real-provider/interview.png)
 
-- **Employer:** inspect/create a job → copy the application link → review screening
-  → inspect transcript and evaluation → shortlist/reject → explicitly notify →
-  share/revoke a report, inspect analytics, and invite recruiters.
-- **Candidate:** submit a fictional PDF/DOCX → wait for screening or human review
-  → follow the captured invitation → complete the interview.
+Fictional candidate data; real DeepSeek responses.
 
-The demo genuinely exercises parsing, routes, authentication, persistence,
-permissions and UI transitions. Its fixed scores and replies demonstrate workflow,
-not AI quality. Ordinary mode supports DeepSeek, OpenAI and Anthropic configuration
-and Resend delivery; live integrations were not verified in this release work.
-`ENABLE_TEST_EMAILS` is a duplicate-application bypass that can replace an earlier
-application for listed addresses, **not an email-delivery gate**.
+![Completed evaluation with the original score and paste-related caution](docs/assets/real-provider/evaluation.png)
+
+Fictional candidate data; real DeepSeek responses. The assistant supplied fictional
+answers; the model's caution is preserved. These results do not validate hiring decisions.
+[Screening, transcript, report, analytics and capture provenance](docs/assets/real-provider/README.md).
+
+## Run locally
+
+Verified scope: Windows, Python 3.11.9, Node 22.16.0, npm 10.9.2, uv 0.12.1,
+SQLite and one backend worker. From repository root in PowerShell, for a fresh
+environment:
+
+```powershell
+py -3.11 -m pip install uv==0.12.1
+uv venv .venv --python 3.11.9
+uv pip sync backend/requirements.lock --python .venv/Scripts/python.exe --require-hashes
+npm --prefix frontend ci --fetch-retries=0
+.venv/Scripts/python.exe backend/scripts/setup_local.py
+```
+
+Preserve existing environments and work; see [canonical installation](docs/quality-checks.md#installation).
+Setup refuses to overwrite either environment file. It generates strong private
+session/proxy secrets without printing them, chooses a fresh database filename,
+and leaves all provider credentials blank.
+
+Edit `backend/.env` privately: the example selects `LLM_PROVIDER=openai` and
+`LLM_MODEL=gpt-4.1-mini`; supply `OPENAI_API_KEY`. Review the
+[provider/model table and lifecycle notes](docs/real-provider-setup.md#implemented-providers-and-model-configuration)
+for DeepSeek and Anthropic alternatives. Keep `PORTFOLIO_DEMO=false` and
+`LLM_FALLBACK_PROVIDERS=`. Do not paste keys into chat or commit environment files.
+Ordinary usage sends candidate text to the selected provider and may incur charges.
+
+For email, set `RESEND_API_KEY` and a verified `FROM_EMAIL`; leave both blank
+for no delivery. Signup/jobs and copied interview links work without email.
+Team invitations require delivery. Status emails are manual; automatic completion
+notifications are not wired. [Email behavior and retry limits](docs/real-provider-setup.md#email-optional-configuration-and-actual-behavior)
+distinguish API acceptance from receipt.
+
+Start the backend after migrating the selected database:
+
+```powershell
+Push-Location backend
+../.venv/Scripts/python.exe -m alembic upgrade head
+../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers --no-access-log
+Pop-Location
+```
+
+In a second terminal at repository root:
+
+```powershell
+npm --prefix frontend run dev
+```
+
+Open `http://localhost:3000`, sign up, create your first job, copy its application
+link and submit a fictional resume. Review screening, approve an interview when
+needed, complete it and inspect its transcript/evaluation. No demo seed is needed.
+The frontend uses `http://127.0.0.1:8000` internally and the shared server-only
+proxy secret. Do not run `next start` directly.
+
+Read the [complete setup, real-mode checks and troubleshooting](docs/real-provider-setup.md)
+for provider errors, migrations, storage, email, data disclosure and evidence limits.
+
+## Optional quick preview
+
+Use the [guarded fictional demo](docs/portfolio-demo.md) for a credential-free
+preview after locked installation:
+
+```powershell
+.venv/Scripts/python.exe backend/scripts/run_portfolio_demo.py start portfolio-1
+```
+
+It creates its own database, invented resumes and captured mailbox, uses fixed
+synthetic AI responses, and cleans up only its owned resources. It does not prove
+live AI quality or email delivery. Stop using the documented authenticated launcher.
+
+The optional [synthetic screenshot gallery](docs/assets/portfolio/README.md)
+retains the earlier demo captures with their original provenance.
 
 ## Implementation and documentation
 
@@ -57,18 +126,17 @@ remain unverified.
 
 ## Verification and release status
 
-November 3, 2026 evidence: Stage E recorded **248 backend tests passed, 1 live
-provider test skipped**, frontend checks/build and seven Node tests passed,
-three SQLite migration paths, HTTP demo, Chromium smoke and source-secret checks
-passed locally. The [gallery](docs/assets/portfolio/README.md) records fictional
-screenshot provenance. These are dated local results, not hosted CI results.
+November 4, 2026 acceptance evidence includes real-provider browser/API workflows
+and separate deterministic regression checks. The [verification summary](docs/real-provider-acceptance.md)
+records exact counts, fixes, delivery evidence and untested flows. These are dated
+local results, not hosted CI results.
 
-**Not public-ready.** Hosted GitHub Actions has not run. The
-[dependency remediation](docs/dependency-review.md) replaces the affected ESLint
-tooling with pinned Oxlint and preserves required lint coverage. The owner selected
-the existing repository/history and no private reporting channel. Exact published
-refs, provenance review, hosted CI and publication authorization remain open.
-See the [publication checklist](docs/release-checklist.md).
+The public-readiness PR was merged and its deterministic demo and hosted CI
+passed, as reported by the owner. That earlier evidence has a separate scope from
+the ordinary-mode acceptance run. Current integration status is recorded in the
+[setup evidence table](docs/real-provider-setup.md#troubleshooting-and-evidence).
+See [dependency remediation](docs/dependency-review.md) and the
+[publication checklist](docs/release-checklist.md) for their separate scopes.
 
 Usage follows [RIGHTS.md](RIGHTS.md): clone, configure, build, test, and run an
 unmodified local copy solely for portfolio evaluation. No open-source license is

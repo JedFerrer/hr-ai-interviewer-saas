@@ -59,6 +59,15 @@ starts/completions use their respective timestamps. Pending review and awaiting
 decision are live status counts. Completion rate divides completed interviews by
 invitations; a zero denominator returns null. Cost averages use completed interviews.
 Per-job health includes average evaluation score and median elapsed completion time.
+The awaiting-decision KPI counts all currently completed, undecided candidates;
+the separate action list applies its age threshold. The API does not supply
+previous-window comparison totals or daily invitation counts, so the dashboard
+does not infer comparison percentages or a completion-rate trend from application
+counts. The application sparkline shows the supplied daily application totals.
+The funnel's shortlisted/rejected counts use candidate completion time and current
+status; pre-screen rejections without a completed interview are excluded. These
+are not a complete, timestamped history of HR decisions; the candidate list shows
+all current statuses, including pre-screen rejection.
 Action lists are capped while their counts cover all matching rows. Trends zero-fill
 days; the all-time trend is bounded to 180 days. Calibration agreement stays null
 below 20 human-reviewed samples and does not establish hiring validity.

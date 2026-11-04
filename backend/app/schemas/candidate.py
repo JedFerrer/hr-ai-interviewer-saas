@@ -75,6 +75,7 @@ class CandidateDetailResponse(BaseModel):
     resume_url: str | None
     resume_parsed_data: dict | None
     interview: InterviewSummaryResponse | None = None
+    interview_link: str | None = None
     evaluation: EvaluationResponse | None = None
     pre_screen: PreScreenSummary | None = None
     # Mirrors job_posting.auto_send_status_emails so the UI can warn HR

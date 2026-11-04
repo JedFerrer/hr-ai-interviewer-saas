@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Plus, Briefcase, Users, BarChart3, Loader2, Archive } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { parseApiDate } from "@/lib/dates";
 
 import { jobs as jobsApi } from "@/lib/api";
 import type { JobPosting } from "@/lib/types";
@@ -193,7 +194,7 @@ function JobCard({ job }: { job: JobPosting }) {
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Created{" "}
-            {formatDistanceToNow(new Date(job.created_at), {
+            {formatDistanceToNow(parseApiDate(job.created_at), {
               addSuffix: true,
             })}
           </p>
