@@ -41,6 +41,8 @@ single-worker limits, proxy trust, role checks and manual notification semantics
 Usage follows RIGHTS.md; owner-authorized work remains authorized. Use the existing
 repository and preserve history. No private reporting channel is being configured;
 contact selection is not a blocker. Dependency remediation is mandatory without
-exceptions. Exact public refs, hosted CI and explicit publication authorization remain open. No public-ready, legal-compliance,
+exceptions. The owner confirms CI passed for PR #6's merge; follow-up changes need
+CI for their own SHA. Exact public refs and explicit publication authorization
+remain owner decisions. No public-ready, legal-compliance,
 hiring-validity or broad platform-support claims. Contributor process is not a
 license grant. See `docs/release-checklist.md` before release preparation.

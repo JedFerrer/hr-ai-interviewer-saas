@@ -59,7 +59,9 @@ dispatch. Feature-branch pushes do not start a separate push run; updating an op
 PR runs its checks. A merge into `main` runs checks on the resulting commit.
 Recommended future required job names: `backend`, `frontend`, `windows-demo`,
 `browser-smoke`, `dependencies`, `secrets`. Do not enable protections until the
-owner has reviewed findings and observed hosted runs. No hosted run is claimed.
+owner has reviewed findings and observed hosted runs. The owner confirms CI passed
+for PR #6's merge; see the [publication checklist](release-checklist.md). That
+dated result does not cover later changes.
 
 The backend job covers correctness lint, the full test suite, three disposable
 SQLite migration paths and credential-free API startup. Frontend covers clean
