@@ -133,7 +133,7 @@ See [quality checks](../docs/quality-checks.md) for Chromium/scanner prerequisit
 and shared `demo`, `dependencies` and `secrets` commands. UI smoke uses owned
 fictional data, not an existing candidate database. Dependency findings must be
 resolved without exceptions. These commands describe available checks; dated
-results and their limits remain in the [verification evidence](../docs/real-provider-acceptance.md).
+results and their limits remain in the [provider coverage summary](../docs/real-provider-setup.md#troubleshooting-and-evidence).
 
 ## Troubleshooting
 

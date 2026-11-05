@@ -38,6 +38,18 @@ as incidental test traffic. Do not paste raw logs, cookies, credentials, invitat
 links or report URLs into issues or PRs. Use fixed phase labels and redacted
 descriptions, then inspect screenshots and document metadata yourself.
 
+## Source and publication boundaries
+
 Documentation review does not authorize commit, push, deployment, visibility
-changes or rights decisions. [Publication gates](release-checklist.md) require separate
-review of the actual selected tree/refs and explicit publication authorization.
+changes or rights decisions. Publication requires review of the selected source,
+exact commit/refs and explicit owner authorization; deployment is separate.
+
+Before release preparation, reconcile the source allowlist and digest, relevant
+canonical checks and clean-source rehearsal evidence. Follow-up commits need
+passing hosted CI for their own SHA. Dependency remediation remains mandatory.
+Scan current source and available history; archiving files does not erase commits.
+Review [attribution and provenance](third-party-inventory.md), binary pixels and
+metadata, and remote issues/attachments/releases, unavailable refs and LFS content
+separately. Never mirror capture/checkpoint refs. Hosted dependency-update PR
+creation remains untested. Public verification uses the retained source and
+[operational metadata](../release/RELEASE_SOURCE_INVENTORY.md), not private records.

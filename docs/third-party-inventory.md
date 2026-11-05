@@ -130,91 +130,27 @@ bundled binary, exported Next output, container, fonts or downloaded visual asse
 No installed dependency's license is asserted to cover the owner's application.
 
 
-## Final decision preparation evidence — November 3, 2026
+## Provenance qualifications
 
-This section refines the earlier unresolved-items list; it does not certify rights.
-No application, fixture, test or lock bytes were changed in this investigation.
+The shadcn tag is a comparison reference, not a proven extraction revision. No
+original component-generator receipt was found. The Sonner issue explains the
+technical idea; inspected issue text did not contain the local explanation verbatim.
+That observation cannot establish independent authorship or license arbitrary prose.
 
-### UI source and workaround
+All decompressed ZIP members of the ten older DOCX fixtures reproduce from their
+documented fictional lines using python-docx 1.2.0. ZIP envelopes were not claimed
+byte-identical, and the original generator version remains unknown. The four
+portfolio fixtures reproduce byte-for-byte from their owned generators. Retain the
+[versioned template reference](https://github.com/python-openxml/python-docx/tree/v1.2.0/src/docx/templates)
+and the applicable template notice; content equivalence does not establish original
+creation history.
 
-`git log --all -- frontend/src/components/ui/button.tsx` identifies introduction
-in `bf46af3` (job management). The original button already has the recognizable
-New York structure. No component-generator receipt or components.json history
-was found by the scoped all-ref history search. The all-ref UI/theme/utils history also includes `933e6b5` (comparison board).
-A fresh normalization comparison against the retained pre-G upstream files confirms
-badge, button and card match after stripping whitespace, semicolons and commas;
-the other nine wrappers differ. The retained comparison files cover all twelve wrappers; the tagged [button source](https://raw.githubusercontent.com/shadcn-ui/ui/shadcn%402.3.0/apps/www/registry/new-york/ui/button.tsx)
-was independently retrieved again. The tag establishes a comparison source,
-not the extraction date/revision. An exact original revision remains unknown.
-
-`git show d72867c -- frontend/src/app/layout.tsx frontend/src/app/globals.css`
-locates both workaround comments and implementation in that commit. The
-[upstream issue](https://github.com/emilkowalski/sonner/issues/357) contains
-an April 11, 2024 comment by steven-tey proposing the Toaster class, and discussion
-of body pointer events and modal dismissal. The local multi-line explanations
-are not verbatim passages in the inspected issue. This supports a shared technical
-idea; it cannot establish independent authorship or exclude another source.
-The issue's publication is not evidence of a license for arbitrary comment prose.
-
-Concrete fallback proposal: replace the twelve wrappers from a single recorded
-upstream revision, retaining its exact license, then reapply and document local
-API/styling differences; review utils/theme/CSS conventions at the same time.
-Rewrite the two explanatory comments from the local Undo/modal behavior, retaining
-the issue as a technical reference. Keep selectors and interaction behavior unless
-separately tested. Run canonical frontend and browser checks, including dialog,
-Undo and focus behavior. Removing wrappers alone would break imports; excluding
-layout/global CSS would break the application. These are optional fallback proposals, not required replacements or changes made
-by this preparation; see the final classifications below.
-
-### Older DOCX: reproducible contents established
-
-The introduction commit `27a2b08` already contains the README generator using
-`Document()`, one paragraph per `resume_lines`, and save. The historical package
-version/installation receipt is absent. During this preparation all ten documents
-were regenerated in memory using installed python-docx 1.2.0 and their existing
-JSONL lines. Every ZIP member name and decompressed member byte matched the
-existing file, including template parts, thumbnail and document properties.
-Paragraphs also matched each case's lines exactly. Thus no unknown content needs
-to be carried forward merely to preserve coverage: the current documents can be
-reconstructed from this known package and the documented fictional source.
-ZIP timestamps/compression envelopes were not claimed byte-identical for the ten.
-The original generator version remains unknown; content equivalence does not prove it.
-
-The [versioned upstream template directory](https://github.com/python-openxml/python-docx/tree/v1.2.0/src/docx/templates)
-and installed `python_docx-1.2.0.dist-info/licenses/LICENSE` support the retained
-MIT notice. All four portfolio outputs were separately regenerated into a fresh
-temporary directory and matched byte-for-byte, then removed. No fixture overwrite
-was necessary. Recommended disposition: retain these contents with the reconstruction
-evidence. Alternative: save a deterministic new ZIP envelope from the same regenerated
-members and record new hashes; run canonical backend checks and extraction/paragraph
-comparisons. Do not run the old README's live-provider evaluation command. Its
-legacy setup/live-eval instructions were replaced with owned-workspace guidance
-on November 4, 2026; no new live results are claimed.
-
-### Screenshot fonts: current observation versus historical inference
-
-A new local Playwright 1.64.1 / Chromium build 1248 blank-page probe rendered
-fictional text with the layout's `Inter,sans-serif` declaration. CDP
-`CSS.getPlatformFontsForNode` reported Arial / ArialMT, `isCustomFont=false`,
-40 glyphs. No HTTP navigation or application/database start was used. This is
-confirmed for that probe only. Arial is a plausible historical fallback, not a
-proven identity for every glyph in the eight D/F/pre-G captures. No original
-per-node platform-font record was retained; icons and other scripts can differ.
-
-Microsoft's [Windows font FAQ](https://learn.microsoft.com/en-us/typography/fonts/font-faq)
-treats bitmap graphic output like printing and distinguishes it from font-file
-redistribution. This supports a conditional Windows-font interpretation, not a
-blanket license for an unidentified font. No font program is in this manifest,
-and no Inter notice is added merely because CSS names Inter. Existing icon notices
-remain applicable. Proposed conservative disposition: recapture all eight images
-from fresh owned fictional runs with an explicitly selected, verified licensed
-font; record platform-font results for visible nodes and the font notice/source.
-Preserve original captures locally. Keep paths/captions or update README, gallery
-and demo links together; rerun browser geometry checks because font metrics can
-change layout. Alternative: exclude all eight images and remove image embeds from
-README/gallery/demo docs; application tests need no weakened assertions. The retained historical images remain selected; missing historical font identity
-alone does not establish a material publication concern. See the final classifications below.
-
+A separate Chromium probe reported Arial/ArialMT for `Inter,sans-serif`; it does
+not identify every historical screenshot glyph. No font program is distributed.
+[Windows font output guidance](https://learn.microsoft.com/en-us/typography/fonts/font-faq)
+distinguishes bitmap output from font redistribution, but cannot establish terms
+for an unidentified font. Retain screenshot provenance and icon notices without
+inferring additional ownership or permission.
 
 ## Final classifications — November 4, 2026
 
@@ -232,6 +168,6 @@ reassessment; missing historical metadata alone does not establish such evidence
 | Eight fictional screenshots and rendered glyphs | Adequately attributed material with incomplete historical metadata | Owned capture evidence, fictional content and retained icon notices support inclusion. No font files are distributed. Current Arial observation is not asserted as historical proof; no evidence identifies restricted font output. Missing glyph identity alone does not justify exclusion or mandatory recapture. |
 | Seven real-provider screenshots and rendered glyphs | Adequately attributed material with incomplete historical metadata | Recorded ordinary-mode capture and visual review establish fictional candidate content and real provider output, with disclosed crops and assistant-authored answers. Retain icon notices. No font program is distributed; exact glyph identity remains unrecorded. This does not establish ownership or grant additional permission for provider output. |
 
-Optional recapture/reconstruction proposals above remain available if concrete
-contrary evidence emerges. They are not prerequisites inferred from absent receipts.
+Reassess attribution or reconstruct affected assets if concrete contrary evidence
+emerges. Missing receipts alone do not require replacing functional source or assets.
 Future binary or font distribution requires review of those actual bytes.

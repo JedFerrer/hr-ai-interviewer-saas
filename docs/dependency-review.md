@@ -1,40 +1,13 @@
-# Dependency remediation and lint coverage
+# Dependency tooling and lint coverage
 
-Reviewed November 4, 2026 (Asia/Manila). The frontend now uses **Oxlint 1.91.0**
-instead of ESLint 9.39.5 and eslint-config-next 16.4.1. Next runtime stays 16.4.1.
-A clean npm installation reports **zero vulnerabilities**. No risk exception,
-advisory suppression, threshold change, package alias, minimatch override or
-patched dependency is used. Every audit finding still fails the canonical check.
-The owner confirms CI passed for PR #6's merge; the [publication checklist](release-checklist.md)
-identifies that SHA. This review reuses the dated audit evidence for unchanged locks.
+The locked frontend uses **Oxlint 1.91.0** with project-owned compatibility checks.
+This avoids the former ESLint/plugin dependency compatibility and advisory problems
+without forced overrides, patched packages or audit suppression. Runtime Next stays
+16.4.1. Every dependency audit finding fails the canonical check; remediation is
+mandatory without exceptions. Lock versions describe this checkout, not a claim
+that no newer advisory exists.
 
-## Root cause and revalidation
-
-[GHSA-g3hv-75wg-m249 / CVE-2026-118764](https://github.com/advisories/GHSA-g3hv-75wg-m249)
-lists minimatch below 11.0.1 as affected and 11.0.1 as fixed. It describes glob
-preprocessing amplification at optimization level 2 or higher. The former lock
-contained minimatch 3.1.5 and 10.2.6 through ESLint, Next lint configuration,
-React/accessibility/import plugins and TypeScript parser tooling: 16 moderate
-package records from one advisory. Legacy 3.x lacks that preprocessing branch
-and uses a callable CommonJS API; this discrepancy was never used to suppress
-findings. Development tooling still processes contributed source/config in CI.
-
-The [ESLint support policy](https://eslint.org/version-support/) confirms v9 is
-unmaintained. November 4 registry queries still returned ESLint 10.14.0 requiring
-minimatch `^10.2.6`, and typescript-estree 8.72.1 requiring `^10.2.2`. React
-7.37.5, jsx-a11y 6.10.2 and import 2.32.0 still exclude ESLint 10 in their peers.
-Next lint config 16.4.4 still consumes these plugins. The unsuccessful prior
-10.14.0/16.4.4 install was not repeated: the constraints had not changed.
-Forcing minimatch 11 would break older consumers' declared ranges/callable API.
-
-Authoritative metadata: [ESLint](https://registry.npmjs.org/eslint/10.14.0),
-[Next config](https://registry.npmjs.org/eslint-config-next/16.4.4),
-[TypeScript parser](https://registry.npmjs.org/@typescript-eslint%2Ftypescript-estree/8.72.1),
-[React](https://registry.npmjs.org/eslint-plugin-react/7.37.5),
-[accessibility](https://registry.npmjs.org/eslint-plugin-jsx-a11y/6.10.2),
-[imports](https://registry.npmjs.org/eslint-plugin-import/2.32.0).
-
-## Implemented migration
+## Tooling and lint coverage
 
 [Oxlint 1.91.0](https://registry.npmjs.org/oxlint/1.91.0) is pinned exactly with
 registry integrity hashes, including its Windows binding. Its Node range is
@@ -84,19 +57,25 @@ Two intentional full-page auth-navigation warnings remain visible, alongside eig
 newly detected unused-binding warnings. None of the former rules was disabled to
 hide warnings. Full document auth navigation clears sensitive in-memory state.
 
-## Verification boundaries
+## Audit commands and limitations
 
-Clean npm installation and the lint coverage tests pass locally. Full canonical
-results are recorded in the private cleanup handoff; public checks require no
-handoff. Python/scanner locks are unchanged. Earlier pytest remediation remains
-pytest 9.2.0 with pytest-asyncio 1.4.1.post1, addressing
-[GHSA-6w46-j5rx-g56g](https://github.com/advisories/GHSA-6w46-j5rx-g56g).
+After the [canonical locked installation](quality-checks.md#installation), including
+the separate scanner environment, run from repository root in PowerShell:
+
+```powershell
+.venv/Scripts/python.exe scripts/check.py dependencies
+.venv/Scripts/python.exe scripts/check.py lint
+.venv/Scripts/python.exe scripts/check.py frontend
+```
+
+The dependency command audits both Python locks and the npm lock. The lint command
+checks Python correctness; frontend checks include the actual lint regression
+snippets, strict TypeScript, Node contracts and production build. Follow
+[lock maintenance](quality-checks.md#updating-locks-and-checks) when updating inputs.
 
 Advisories change over time. npm/pip-audit do not certify native bindings, Chromium,
-PDFium, OS libraries, malicious packages or real-provider behavior. No exploit
-traffic or credential verification was performed. Re-run audits for the exact
-release when content or evidence gaps require it. Follow-up changes require CI for
-their own SHA; exact public refs and explicit publication authorization remain
-owner decisions. Recorded provenance classifications are in the
-[third-party inventory](third-party-inventory.md). Existing history is preserved. No private
-reporting channel is being configured, by owner decision.
+PDFium, OS libraries, malicious packages or real-provider behavior. A dated audit
+pass is not evidence for changed locks or future advisories. Preserve findings and
+run relevant checks for the changed source; follow-up commits need CI for their
+own SHA. See the [third-party inventory](third-party-inventory.md) for attribution
+and distribution limits. No publication authorization is implied.

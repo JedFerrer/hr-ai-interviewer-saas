@@ -42,7 +42,7 @@ node frontend/node_modules/playwright/cli.js install chromium
 ```
 
 The dependency command fails on every finding, without severity filtering or
-exceptions. See [the remediation and coverage review](dependency-review.md).
+exceptions. See [the tooling and coverage review](dependency-review.md).
 
 `scripts/rehearse_release.py` copies only `release/RELEASE_SOURCE_FILES.txt` into
 a newly owned temporary directory, installs both hashed Python locks and npm
@@ -59,9 +59,8 @@ dispatch. Feature-branch pushes do not start a separate push run; updating an op
 PR runs its checks. A merge into `main` runs checks on the resulting commit.
 Recommended future required job names: `backend`, `frontend`, `windows-demo`,
 `browser-smoke`, `dependencies`, `secrets`. Do not enable protections until the
-owner has reviewed findings and observed hosted runs. The owner confirms CI passed
-for PR #6's merge; see the [publication checklist](release-checklist.md). That
-dated result does not cover later changes.
+owner has reviewed findings and observed hosted runs. Passing hosted CI must cover the exact commit being reviewed; earlier results
+do not cover later changes.
 
 The backend job covers correctness lint, the full test suite, three disposable
 SQLite migration paths and credential-free API startup. Frontend covers clean

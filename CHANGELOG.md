@@ -14,16 +14,15 @@ is project metadata, not evidence of publication.
 - Locked installation, custom Next proxy, bounded parsers, local regression checks,
   Chromium smoke, secret scanning and Windows CI configuration.
 - Public-facing setup, workflow/data limits, fictional screenshots, contributor
-  templates and reviewable publication checklist.
+  templates and source verification metadata.
 
 Known limits: Windows/SQLite/one worker only verified; process-local background
 work; no complete candidate-erasure workflow or live-model quality claim.
 The affected ESLint/minimatch toolchain is replaced by pinned Oxlint with
-coverage checks. The owner confirms CI passed for PR #6's merge; follow-up changes
-need CI for their own SHA. Existing history is retained; no private reporting
-channel is being configured. Exact public refs and publication authorization remain
-owner decisions. See [release checklist](docs/release-checklist.md) and the recorded
-[provenance classifications](docs/third-party-inventory.md).
+coverage checks. Follow-up changes need CI for their own SHA. Existing history
+is retained. See [maintenance boundaries](docs/development-workflow.md#source-and-publication-boundaries)
+and [provenance qualifications](docs/third-party-inventory.md).
+
 
 Usage now follows RIGHTS.md, matching the reference project: unmodified local
 portfolio evaluation, with general modification and other listed uses requiring

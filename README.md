@@ -3,13 +3,10 @@
 An AI-assisted screening **portfolio prototype**: employers create jobs, review
 applications and interviews, and make their own candidate decisions. Candidates
 apply with a resume and complete a text interview through an invitation link.
-Ordinary local setup uses your own AI provider credentials and optional Resend
-email configuration. On November 4, 2026, an isolated ordinary-mode test completed
-two fictional interviews with DeepSeek `deepseek-flash`; six Resend messages had
-observed delivery events, and the operator confirmed receiving/opening one invitation.
-See the [acceptance results and coverage limits](docs/real-provider-acceptance.md).
-Other AI providers remain unverified. This is not a hosted
-hiring service or a validated hiring assessment.
+Capabilities include PDF/DOCX resume screening, configurable review policies,
+AI-assisted text interviews, saved transcripts and evaluations, shareable reports,
+team access, analytics and manual candidate notifications. It is intended for
+fictional local evaluation, not production hiring.
 
 ## Product screenshots
 
@@ -55,7 +52,7 @@ Scores and integrity signals require human interpretation and do not validate hi
 | Preview without provider credentials | [Optional fictional demo](docs/portfolio-demo.md) |
 | Understand the UI or API | [Frontend](frontend/README.md) / [backend](backend/README.md) |
 | Understand architecture and data boundaries | [Architecture](docs/architecture.md) / [data and AI limitations](docs/data-and-ai-limitations.md) |
-| Install locked dependencies and run checks | [Quality checks](docs/quality-checks.md) |
+| Install locked dependencies and run checks | [Tests and quality checks](#tests-and-quality-checks) / [canonical guide](docs/quality-checks.md) |
 | Make authorized contributions | [Development workflow](docs/development-workflow.md) / [contributor guidance](CONTRIBUTING.md) |
 
 ## Run locally
@@ -181,9 +178,6 @@ Exact dependencies are recorded in the [Python lock](backend/requirements.lock)
 and [npm lock](frontend/package-lock.json); the [local setup](#run-locally) lists
 the verified runtime versions.
 
-PostgreSQL, Linux/macOS, multiple workers and hosted real-candidate operation
-remain unverified.
-
 ## Repository structure
 
 Selective tracked-source map; component READMEs explain their internal directories.
@@ -213,19 +207,45 @@ The retained CLI utilities are not the ordinary web onboarding path. Private
 environments, uploads, databases, generated dependencies/builds and ignored
 `.local-dev/` records are not supplied source or prerequisites to copy.
 
-## Verification and release status
+## Tests and quality checks
 
-November 4, 2026 acceptance evidence includes real-provider browser/API workflows
-and separate deterministic regression checks. The [verification summary](docs/real-provider-acceptance.md)
-records exact counts, fixes, delivery evidence and untested flows. These are dated
-local results, not hosted CI results.
+Run these canonical commands from **repository root in PowerShell**, after the
+[locked installation](docs/quality-checks.md#installation). Security checks also
+need the separate `.security-venv`; browser checks need the locked Chromium install
+described there. Use a clean terminal without application/provider overrides.
+Installation, the frontend check's clean install and dependency audits need registry access.
 
-The public-readiness PR was merged and its deterministic demo and hosted CI
-passed, as reported by the owner. That earlier evidence has a separate scope from
-the ordinary-mode acceptance run. Current integration status is recorded in the
-[setup evidence table](docs/real-provider-setup.md#troubleshooting-and-evidence).
-See [dependency remediation](docs/dependency-review.md) and the
-[publication checklist](docs/release-checklist.md) for their separate scopes.
+| Command | Purpose |
+| --- | --- |
+| `.venv/Scripts/python.exe scripts/validate_source.py` | Check selected source paths, local links/anchors and content digest. |
+| `.venv/Scripts/python.exe scripts/validate_ci.py` | Check workflow/toolchain invariants and metadata regression tests. |
+| `.venv/Scripts/python.exe scripts/check.py lint` | Run Python correctness lint. |
+| `.venv/Scripts/python.exe scripts/check.py backend` | Run backend tests, disposable SQLite migration checks and credential-free startup. |
+| `.venv/Scripts/python.exe scripts/check.py frontend` | Run a clean locked install, lint, strict TypeScript, Node tests and production build. |
+| `.venv/Scripts/python.exe scripts/check.py demo` | Verify deterministic HTTP workflows, failures, tenancy and owned cleanup. |
+| `.venv/Scripts/python.exe scripts/check.py browser` | Exercise the fictional employer/candidate journey in Chromium through the frontend proxy. |
+| `.venv/Scripts/python.exe scripts/check.py dependencies` | Audit dependencies; every finding fails, without exceptions. |
+| `.venv/Scripts/python.exe scripts/check.py secrets` | Scan selected current source and available publication-history refs using the reviewed baseline. |
+
+The application tests and demo/browser checks use deterministic fixtures and
+provider replacements, require no provider credentials and send no real email.
+See [quality checks](docs/quality-checks.md) for isolation, cleanup and scanner
+coverage, and [dependency review](docs/dependency-review.md) for tooling rationale and audit commands.
+
+Optional real-provider testing is manual and outside ordinary checks/CI. It
+requires explicit provider/model, request and spending approval, exact email
+recipients when delivery is tested, and fresh isolated data. Follow the
+[real-provider setup and testing guide](docs/real-provider-setup.md); coverage limits are summarized in [data and AI limitations](docs/data-and-ai-limitations.md#verification-coverage).
+Deterministic tests do not establish live-provider quality or email delivery.
+
+## Scope and limitations
+
+Verified local environment: Windows, Python 3.11.9, Node 22.16.0, npm 10.9.2,
+uv 0.12.1, SQLite and one backend worker. PostgreSQL, Linux/macOS, multiple workers
+and hosted real-candidate operation remain unverified. AI scores, evaluations and
+integrity signals require human review; they are not validated hiring assessments.
+See [data and AI limitations](docs/data-and-ai-limitations.md) and
+[architecture boundaries](docs/architecture.md) for details.
 
 ## Rights and security
 

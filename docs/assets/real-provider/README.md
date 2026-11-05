@@ -7,7 +7,7 @@ isolated ordinary-mode Windows/SQLite run through the supplied frontend proxy.
 `PORTFOLIO_DEMO=false`; the selected provider/model was DeepSeek `deepseek-flash`,
 with no fallback. These are saved results from actual requests, not fixed demo
 responses. The model alias may change; no returned model-version identifier was
-retained. [Acceptance results](../../real-provider-acceptance.md).
+retained. [Provider coverage limits](../../real-provider-setup.md#troubleshooting-and-evidence).
 
 All names, companies, resumes and answers are invented. The assistant submitted
 the answers. The mailbox owner confirmed receiving/opening their separate test

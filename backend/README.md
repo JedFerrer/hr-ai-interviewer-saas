@@ -173,7 +173,7 @@ See [quality checks](../docs/quality-checks.md) for the shared `demo`, `dependen
 and `secrets` commands and scanner prerequisites. Dependency findings must be
 resolved without exceptions. Tests use isolated targets, not development data.
 These commands describe available checks; dated results and their limits remain
-in the [verification evidence](../docs/real-provider-acceptance.md).
+in the [provider coverage summary](../docs/real-provider-setup.md#troubleshooting-and-evidence).
 
 ### Troubleshooting
 

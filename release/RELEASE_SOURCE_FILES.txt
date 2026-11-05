@@ -193,9 +193,7 @@ docs/dependency-review.md
 docs/development-workflow.md
 docs/portfolio-demo.md
 docs/quality-checks.md
-docs/real-provider-acceptance.md
 docs/real-provider-setup.md
-docs/release-checklist.md
 docs/third-party-inventory.md
 docs/user-guide.md
 frontend/.env.example
