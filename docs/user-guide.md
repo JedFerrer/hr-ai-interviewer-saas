@@ -4,8 +4,8 @@ Use [ordinary local setup](real-provider-setup.md) for your configured provider,
 or the [owned demo](portfolio-demo.md) for fixed synthetic responses and a captured
 mailbox. Use invented accounts and resumes for local evaluation. Actual email
 requires an explicitly approved recipient; reserved-domain fixtures are for
-captured/demo delivery only. [Real-provider acceptance evidence](real-provider-acceptance.md)
-records the separately authorized live run.
+captured/demo delivery only. [Provider coverage summary](real-provider-setup.md#troubleshooting-and-evidence)
+describes the limited fictional live verification.
 
 ## Employer and candidate journey
 

@@ -1,9 +1,7 @@
 # Current source boundary
 
-Updated November 4, 2026 (Asia/Manila). This is operational verification metadata,
-not publication authorization. The owner selected the existing repository and
-preserved history. RIGHTS.md remains the adopted policy. No private reporting
-channel is being configured; contact selection is not a publication prerequisite.
+Updated November 5, 2026 (Asia/Manila). This is operational verification metadata,
+not publication authorization. RIGHTS.md remains the adopted policy.
 
 `RELEASE_SOURCE_FILES.txt` is the sorted, explicit current-source allowlist.
 `RELEASE_SOURCE_DIGEST.json` records SHA-256 and size for that selection: UTF-8 text uses LF line endings,
@@ -13,10 +11,6 @@ The digest accompanies the export; its own bytes are excluded from hashing to av
 Run `python scripts/validate_source.py` to check links, paths and digests; use
 `--refresh` only after deliberately reviewing changes to the selected files.
 The script does not automatically add paths to the manifest or stage anything.
-
-The November 4 commit review adds deterministic interview rollback and overlapping
-request persistence tests to the selected source. Private review records remain
-under `.local-dev/handoffs/`; no runtime data or new live-provider evidence is added.
 
 | Retained public material | Purpose |
 | --- | --- |
@@ -42,11 +36,14 @@ tags and HEAD, including historical versions of moved files. Capture/checkpoint
 refs remain outside the existing scope and must not be mirrored. Remote assets,
 unavailable refs and provenance review require separate publication review.
 
+The detailed ordinary-provider acceptance report and owner publication checklist
+are excluded from the current allowlist. Setup, limitations and screenshot guides
+retain coverage boundaries and provenance; dependency and third-party guides
+retain current maintenance and attribution information. Historical evidence is
+archived locally without changing prior commits. Public checks need no archive.
+
 No staging, commit, push, deployment, remote/settings change or history rewrite
-is authorized by this inventory. The owner confirms CI passed for PR #6's merge,
-`093545bf6afda2ea8b35faf3966fd68f1de9c8b3`. Follow-up documentation changes require
-a separate commit and CI run. Provenance classifications are recorded in the
-[third-party inventory](../docs/third-party-inventory.md); historical metadata
-gaps are retained without inferring ownership or permission. Exact public refs
-and explicit publication authorization remain owner decisions. See the
-[release checklist](../docs/release-checklist.md).
+is authorized by this inventory. Follow-up commits need CI for their own SHA.
+See [maintenance boundaries](../docs/development-workflow.md#source-and-publication-boundaries)
+and [third-party provenance](../docs/third-party-inventory.md). Exact public refs
+and explicit publication authorization remain owner decisions.

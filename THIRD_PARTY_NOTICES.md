@@ -115,8 +115,8 @@ THE SOFTWARE.
 
 The shadcn tag above is a comparison reference, not a proven original extraction
 revision. The Sonner issue reference does not establish a license for comment
-prose. Proposed replacement work and history evidence are recorded in the
-[inventory](docs/third-party-inventory.md#final-decision-preparation-evidence--november-3-2026).
+prose. Provenance qualifications are recorded in the
+[inventory](docs/third-party-inventory.md#provenance-qualifications).
 
 The ten older DOCX files were reproduced with python-docx 1.2.0: all decompressed
 ZIP members match. This supports the template notice above without asserting the

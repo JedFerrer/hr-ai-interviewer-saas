@@ -188,23 +188,16 @@ establishes real usage; absence of a banner or a passing synthetic test does not
 | Ordinary provider routing, explicit fallback/model selection, failure classes, demo activation guards | Mocked regression coverage; no paid calls |
 | Signup/jobs, SQLite migrations, parser and existing route/tenant tests | Canonical isolated backend checks |
 | Fictional full browser journey and captured email | Optional demo only; deterministic adapters |
-| Live DeepSeek `deepseek-flash`, November 4, 2026 | Two completed fictional interviews plus supporting employer/team/report workflows in the [acceptance run](real-provider-acceptance.md); fallback disabled |
+| Live DeepSeek `deepseek-flash`, November 4, 2026 | Two completed fictional interviews plus supporting employer/team/report workflows in a local fictional run; fallback disabled |
 | Live OpenAI and Anthropic journey | Untested; no live-tested date/model claimed |
 | Resend, November 4, 2026 | Six requests accepted and six delivered events observed; operator confirmed receipt/opening of one invitation. Other messages have no human confirmation. |
 
-The earlier setup-only DeepSeek run used 17 attempts: 16 accepted and one connection
-failure recovered by manual retry. It persisted one completed interview with 11
-transcript messages and one evaluation. Returned usage was 15,002 input and 1,726
-output tokens, approximately USD 0.0066 at peak list rates (not an invoice; failed
-attempt billing was unavailable). Approval capped usage at 40 requests/USD 1.
-No fallback or email request occurred. Missing email configuration produced an
-honest retry error without regenerating questions. An isolated database/upload
-directory was removed after verification; ordinary records were untouched.
-This single fictional journey does not establish model quality or hiring validity.
-
-The later, separately authorized [full acceptance run](real-provider-acceptance.md)
-used 34 additional attempts and six real emails. Its budget, outcome and coverage
-limits are recorded separately; do not combine the earlier run's counts with it.
+These dated observations cover Windows/SQLite with one worker and manual-review
+routing. Auto-all/hybrid routing, failure/retry and interview rollback/concurrency
+have deterministic coverage, not additional live-provider acceptance. Delivery
+events do not establish inbox placement or human reading. Live captures are desktop
+only; see [screenshot provenance](assets/real-provider/README.md) and
+[verification limits](data-and-ai-limitations.md#verification-coverage).
 
 Live tests remain manual and opt-in, outside CI. Require explicit provider/model,
 request and spending approval plus exact email recipients before execution. Use

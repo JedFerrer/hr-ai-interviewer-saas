@@ -67,5 +67,28 @@ are not provided by the portfolio launcher.
 Before hosted real-candidate operation, separately review candidate notices and
 provider destinations, access/retention rules, human oversight, durable recovery,
 transport/ingress protections, logging, backups, abuse/cost limits, dependency
-maintenance and incident response. [Open publication gates](release-checklist.md)
-also remain; source visibility is a separate milestone from service deployment.
+maintenance and incident response. Source visibility requires separate explicit authorization for the selected
+repository and exact refs; service deployment is a separate decision.
+
+## Verification coverage
+
+Dated local verification on November 4, 2026 used fictional content, real DeepSeek
+`deepseek-flash` without fallback, and Resend on Windows/SQLite with one worker.
+Two interviews and supporting employer/team/report workflows were exercised.
+Live applications used manual review. OpenAI/Anthropic, hosted deployment,
+PostgreSQL, multiple workers and other operating systems were not live-verified.
+These observations do not validate model quality, fairness or hiring decisions.
+
+Expiry, hostile parser inputs, failure/retry paths, notification idempotency,
+team concurrency and interview rollback/overlapping transitions have deterministic
+regression coverage. They do not establish live-provider failure recovery or client
+request-id deduplication. Auto-all/hybrid routing has deterministic coverage only.
+Automatic employer completion email has no application caller; internal notes
+have no implemented UI. Durable queues and general evaluation retry are unavailable.
+
+Analytics rejected/shortlisted funnel counts use completion time and current status;
+pre-screen rejections are excluded. They are not a complete history of HR decisions.
+Live screenshots are desktop captures; synthetic browser geometry/keyboard checks
+at desktop and narrow sizes do not establish broad accessibility or responsive support.
+See [provider coverage](real-provider-setup.md#troubleshooting-and-evidence) and
+[screenshot provenance](assets/real-provider/README.md).

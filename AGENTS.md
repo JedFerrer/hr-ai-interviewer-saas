@@ -41,8 +41,11 @@ single-worker limits, proxy trust, role checks and manual notification semantics
 Usage follows RIGHTS.md; owner-authorized work remains authorized. Use the existing
 repository and preserve history. No private reporting channel is being configured;
 contact selection is not a blocker. Dependency remediation is mandatory without
-exceptions. The owner confirms CI passed for PR #6's merge; follow-up changes need
-CI for their own SHA. Exact public refs and explicit publication authorization
+exceptions. Follow-up changes need CI for their own SHA. Exact public refs and explicit publication authorization
 remain owner decisions. No public-ready, legal-compliance,
 hiring-validity or broad platform-support claims. Contributor process is not a
-license grant. See `docs/release-checklist.md` before release preparation.
+license grant. Before release preparation, review the source inventory and canonical checks,
+reconcile exact source/refs, review provenance and remote assets, and obtain
+explicit publication authorization. Never mirror capture/checkpoint refs.
+Local preparation does not authorize staging, commits, pushes, settings changes
+or deployment; follow the owner-authorized scope for those actions.
