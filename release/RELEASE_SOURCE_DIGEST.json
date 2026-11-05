@@ -1,7 +1,7 @@
 {
   "format": "sha256-lf-text-path-lines-v2",
   "count": 296,
-  "digest": "97a92da500e71a19f0e25586548904e465a6b2fa438eff6793fb66be47ad8463",
+  "digest": "e3bdac56ef2ed7e0330a2cac17bf8275cd22b83108344ca2c8269c657277e49b",
   "files": [
     {
       "path": ".env.example",
@@ -60,8 +60,8 @@
     },
     {
       "path": "README.md",
-      "size": 7419,
-      "sha256": "a783ca49ce820520d871d23dca61094863f11d746a79395a0362abf0b550dbbc"
+      "size": 11955,
+      "sha256": "b5e2b280306fb743c6604cc999cd727ad6e1da1a23fcf69a00933a90122e49a5"
     },
     {
       "path": "RIGHTS.md",
@@ -90,8 +90,8 @@
     },
     {
       "path": "backend/README.md",
-      "size": 4914,
-      "sha256": "186255bfcea4363d35e6f92f7bf1c5b7072a3df21d5dc985f5f1d9462696f0a6"
+      "size": 10444,
+      "sha256": "d5e8704882b808e050fe46169b0c513f873d8dcc46d4cc44a42b9aeefd29c527"
     },
     {
       "path": "backend/alembic.ini",
@@ -1020,8 +1020,8 @@
     },
     {
       "path": "frontend/README.md",
-      "size": 2615,
-      "sha256": "d03eb8beb829e075c90046cbc8f270f85784fc2677abe2d31a2564595ba73fdc"
+      "size": 7331,
+      "sha256": "9d49c6f917a2d8845e1310ce8211d3ea61254787e9597dbc81d25a5d6eb00d50"
     },
     {
       "path": "frontend/next-env.d.ts",
