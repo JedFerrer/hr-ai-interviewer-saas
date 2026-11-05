@@ -9,7 +9,9 @@ additional rights and establishes no contributor assignment or agreement.
 For authorized work, follow [development workflow](docs/development-workflow.md)
 and [AGENTS.md](AGENTS.md). Preserve existing changes, use the locked toolchain,
 keep scope focused, and record relevant check results and known failures. The
-dependency gate remains open; hosted CI success has not been established.
+dependency gate is mandatory for every candidate. The owner confirms CI passed
+for PR #6's merge; see the [publication checklist](docs/release-checklist.md) for
+the exact SHA and follow-up requirements.
 
 Bug reports should include fictional reproduction steps, expected/actual behavior,
 runtime versions and sanitized evidence. Feature requests should explain the

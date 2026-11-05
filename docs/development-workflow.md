@@ -27,7 +27,7 @@ are not the current setup or release contract.
    [project rights](../RIGHTS.md); this workflow itself grants no usage permissions.
 
 `scripts/rehearse_release.py` installs and checks a fresh manifest-only copy.
-It must continue to report dependency failure until actual remediation succeeds. No risk
+It must report every dependency finding as a failure. No risk
 exception is authorized. Do not weaken severity thresholds, guards or tests
 to turn a failing gate green. Lock regeneration has one canonical workflow in
 [quality checks](quality-checks.md#updating-locks-and-checks).
@@ -38,6 +38,6 @@ as incidental test traffic. Do not paste raw logs, cookies, credentials, invitat
 links or report URLs into issues or PRs. Use fixed phase labels and redacted
 descriptions, then inspect screenshots and document metadata yourself.
 
-No commit, push, deployment, visibility change or rights decision is part of the
-Stage F documentation task. [Stage G gates](release-checklist.md) require separate
+Documentation review does not authorize commit, push, deployment, visibility
+changes or rights decisions. [Publication gates](release-checklist.md) require separate
 review of the actual selected tree/refs and explicit publication authorization.

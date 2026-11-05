@@ -35,7 +35,7 @@ Neither `.local-dev/` nor `.release-work/` is an input to public checks.
 Uploads, personal resumes, databases, tokens, environments and runtime captures
 remain excluded and were not inspected or copied for this organization.
 
-Moving tracked working files produces unstaged deletions. It does not erase Git
+The earlier removals from the current tree are committed. They did not erase Git
 history: earlier plans and results remain reachable in preserved commits.
 The secret scanner still scans all available local heads, remote-tracking refs,
 tags and HEAD, including historical versions of moved files. Capture/checkpoint
@@ -43,6 +43,10 @@ refs remain outside the existing scope and must not be mirrored. Remote assets,
 unavailable refs and provenance review require separate publication review.
 
 No staging, commit, push, deployment, remote/settings change or history rewrite
-is authorized. Hosted CI, exact published refs, remaining notice/provenance review
-and explicit publication authorization are still outstanding. See the
+is authorized by this inventory. The owner confirms CI passed for PR #6's merge,
+`093545bf6afda2ea8b35faf3966fd68f1de9c8b3`. Follow-up documentation changes require
+a separate commit and CI run. Provenance classifications are recorded in the
+[third-party inventory](../docs/third-party-inventory.md); historical metadata
+gaps are retained without inferring ownership or permission. Exact public refs
+and explicit publication authorization remain owner decisions. See the
 [release checklist](../docs/release-checklist.md).

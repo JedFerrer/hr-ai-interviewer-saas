@@ -5,7 +5,8 @@ instead of ESLint 9.39.5 and eslint-config-next 16.4.1. Next runtime stays 16.4.
 A clean npm installation reports **zero vulnerabilities**. No risk exception,
 advisory suppression, threshold change, package alias, minimatch override or
 patched dependency is used. Every audit finding still fails the canonical check.
-Hosted CI has not run.
+The owner confirms CI passed for PR #6's merge; the [publication checklist](release-checklist.md)
+identifies that SHA. This review reuses the dated audit evidence for unchanged locks.
 
 ## Root cause and revalidation
 
@@ -94,6 +95,8 @@ pytest 9.2.0 with pytest-asyncio 1.4.1.post1, addressing
 Advisories change over time. npm/pip-audit do not certify native bindings, Chromium,
 PDFium, OS libraries, malicious packages or real-provider behavior. No exploit
 traffic or credential verification was performed. Re-run audits for the exact
-release. Hosted CI, remaining provenance review, exact refs and explicit publication
-authorization remain outstanding. Existing history is preserved. No private
+release when content or evidence gaps require it. Follow-up changes require CI for
+their own SHA; exact public refs and explicit publication authorization remain
+owner decisions. Recorded provenance classifications are in the
+[third-party inventory](third-party-inventory.md). Existing history is preserved. No private
 reporting channel is being configured, by owner decision.

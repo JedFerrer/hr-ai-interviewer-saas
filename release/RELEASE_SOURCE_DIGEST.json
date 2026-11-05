@@ -1,7 +1,7 @@
 {
   "format": "sha256-lf-text-path-lines-v2",
   "count": 296,
-  "digest": "4fd8570f3b0c9023b0a25b429b2d48d4e6a0c8503c594a3e2b6b939522021efd",
+  "digest": "97a92da500e71a19f0e25586548904e465a6b2fa438eff6793fb66be47ad8463",
   "files": [
     {
       "path": ".env.example",
@@ -45,18 +45,18 @@
     },
     {
       "path": "AGENTS.md",
-      "size": 2708,
-      "sha256": "d6e083e83613d4cf92eb65dadd843a59c301b2a1c70b9a919e8b1b706f4a1918"
+      "size": 2801,
+      "sha256": "9a505efc376cbaa15d8d747f2d01a2ef87de2f8a3d3ab3930417c0af7c456df9"
     },
     {
       "path": "CHANGELOG.md",
-      "size": 1596,
-      "sha256": "80eb8a8d8ed727550ee6e5d2d2f7d0b0e68e1107e61f53708525c0389a7390fb"
+      "size": 1723,
+      "sha256": "d8a8bb328ef2e3481b42e51fe168a4cb83c91df868ab8d74a37f93451f9a12f6"
     },
     {
       "path": "CONTRIBUTING.md",
-      "size": 1444,
-      "sha256": "44f11295fd0e16e02747d5c78da66448ba87470042df043c30d0b07a687e21e0"
+      "size": 1573,
+      "sha256": "71ba1b4d339f46096faa843d3f3938a7f43acc8379d7a053180993e8b3af9f3a"
     },
     {
       "path": "README.md",
@@ -960,13 +960,13 @@
     },
     {
       "path": "docs/dependency-review.md",
-      "size": 6749,
-      "sha256": "45a0aced298c47698ceb3e226f6042b3979e719351603a6a9cd823c010bd59b1"
+      "size": 7068,
+      "sha256": "d62db9afb70949e78f207e277ec6be6b85529b03e5a1a30f98bcddf32288d2e6"
     },
     {
       "path": "docs/development-workflow.md",
-      "size": 2807,
-      "sha256": "a32e42b5fd384d58218fc42e16219b78e775789be9797df5f99260de9bb8ae5c"
+      "size": 2781,
+      "sha256": "268684e48faa65f0635e40a724b5c9bd28a154f8d5ee8c6239e90bef2c5a58f6"
     },
     {
       "path": "docs/portfolio-demo.md",
@@ -975,8 +975,8 @@
     },
     {
       "path": "docs/quality-checks.md",
-      "size": 10530,
-      "sha256": "aa269b48fdad6a67fa149eab68466c679e5abd75de5c51a9732ef0be89ca10d1"
+      "size": 10655,
+      "sha256": "1097f5f9b6d5b2a515e6b9c3ebfb8340dc7c7d0eaf5f78c918bd28fe8a08ea35"
     },
     {
       "path": "docs/real-provider-acceptance.md",
@@ -990,13 +990,13 @@
     },
     {
       "path": "docs/release-checklist.md",
-      "size": 1922,
-      "sha256": "f5c40ad61d60e9303dd494971b480445af52af403d2ffd76de80b77974c3aea0"
+      "size": 2537,
+      "sha256": "2ae599948384966786bdf8eed5a1b40d92ddcf2515b97b7db751ec187c1a19ef"
     },
     {
       "path": "docs/third-party-inventory.md",
-      "size": 24143,
-      "sha256": "94c984a91e04a43040b24431bf769dbf433a34f5dc8fcadf1a31474aa041f74a"
+      "size": 24651,
+      "sha256": "e83277bb0cd02a97488dfaa3e2d4a49ad50afcba18483b3024742ceb9e0107c6"
     },
     {
       "path": "docs/user-guide.md",
@@ -1345,8 +1345,8 @@
     },
     {
       "path": "release/RELEASE_SOURCE_INVENTORY.md",
-      "size": 3489,
-      "sha256": "9e07d51b38682be2d6b8cd8ce84f507207111e066f3f07ec1e4ef8677241f85b"
+      "size": 3808,
+      "sha256": "cb7343447ec3ad73828c3b3d1c9d9e00661634973a56b6857022d20e98140841"
     },
     {
       "path": "renovate.json",
